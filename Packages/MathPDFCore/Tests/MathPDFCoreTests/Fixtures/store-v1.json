@@ -1,0 +1,87 @@
+{"schemaVersion":1,"sha256":"f96edbd233d21369582987c8b0d303e3dc2c94351dd12f422b9426856c20a10f","payload":{
+  "documentHash": "c4f3689b7171440c27babf13a08bdbcaf0615968a2f71bc520ad8a9271472a8f",
+  "originalPath": "/Users/someone/Papers/lecture-notes.pdf",
+  "pageCount": 3,
+  "revision": 7,
+  "savedAt": "2025-03-14T09:30:00.000Z",
+  "annotations": [
+    {
+      "id": "6F1A2B3C-0000-4000-8000-000000000001",
+      "type": "underline",
+      "page": 0,
+      "rects": [
+        [
+          72,
+          700.5,
+          468,
+          12
+        ],
+        [
+          72,
+          686.25,
+          468,
+          12
+        ],
+        [
+          72,
+          672,
+          210.75,
+          12
+        ]
+      ],
+      "color": "#FF3B30",
+      "createdAt": "2025-03-14T09:26:53.589Z",
+      "modifiedAt": "2025-03-14T09:27:10.001Z"
+    },
+    {
+      "id": "6F1A2B3C-0000-4000-8000-000000000002",
+      "type": "highlight",
+      "page": 1,
+      "rects": [
+        [
+          100,
+          500,
+          200,
+          14
+        ]
+      ],
+      "color": "#FFD60A",
+      "createdAt": "2025-03-14T09:28:00.000Z",
+      "modifiedAt": "2025-03-14T09:28:00.000Z"
+    },
+    {
+      "id": "6F1A2B3C-0000-4000-8000-000000000003",
+      "type": "note",
+      "page": 1,
+      "rects": [
+        [
+          540,
+          720,
+          20,
+          20
+        ]
+      ],
+      "text": "Check Itô's lemma here — see §4.2 \"quoted\"",
+      "color": "#FFCC00",
+      "createdAt": "2025-03-14T09:29:00.000Z",
+      "modifiedAt": "2025-03-14T09:29:30.500Z"
+    },
+    {
+      "id": "6F1A2B3C-0000-4000-8000-000000000004",
+      "type": "latex",
+      "page": 2,
+      "rects": [
+        [
+          90,
+          400,
+          160,
+          28
+        ]
+      ],
+      "source": "\\int_0^T \\sigma_t\\,dW_t = \\lim_{n\\to\\infty} \\sum_{i} \\sigma_{t_i}(W_{t_{i+1}} - W_{t_i}) \\quad \\text{(Itô)}",
+      "color": "#000000",
+      "createdAt": "2025-03-14T09:29:45.123Z",
+      "modifiedAt": "2025-03-14T09:29:45.123Z"
+    }
+  ]
+}}

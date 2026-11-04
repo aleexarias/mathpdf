@@ -1,0 +1,69 @@
+name: mathpdf
+
+options:
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MACOSX_DEPLOYMENT_TARGET: "14.0"
+
+packages:
+  MathPDFCore:
+    path: Packages/MathPDFCore
+
+targets:
+  mathpdf:
+    type: application
+    platform: macOS
+    sources:
+      - App
+    dependencies:
+      - package: MathPDFCore
+        products:
+          - MathPDFCore
+          - MathPDFLaTeX
+          - MathPDFRendering
+    settings:
+      base:
+        PRODUCT_NAME: mathpdf
+        PRODUCT_BUNDLE_IDENTIFIER: dev.mathpdf.mathpdf
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        # Signed to run locally; no developer account needed. No App Sandbox,
+        # so data lives in ~/Library/Application Support/mathpdf rather than
+        # a container.
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGN_STYLE: Manual
+        ENABLE_HARDENED_RUNTIME: NO
+        ENABLE_USER_SCRIPT_SANDBOXING: YES
+        # Drawn by scripts/AppIcon.swift (`make icon`).
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+    info:
+      path: Support/Info.plist
+      properties:
+        CFBundleDisplayName: mathpdf
+        LSApplicationCategoryType: public.app-category.productivity
+        NSHumanReadableCopyright: ""
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: PDF Document
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - com.adobe.pdf
+
+schemes:
+  mathpdf:
+    build:
+      targets:
+        mathpdf: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - package: MathPDFCore/MathPDFCoreTests
+        - package: MathPDFCore/MathPDFLaTeXTests
+        - package: MathPDFCore/MathPDFRenderingTests

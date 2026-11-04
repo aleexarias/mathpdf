@@ -1,0 +1,141 @@
+{"schemaVersion":2,"sha256":"b6e3ef742bb7dc6129b01488d0d12940cca5efc7b785df9fad630251777dfebf","payload":{
+  "annotations" : [
+    {
+      "bounds" : [
+        72,
+        700,
+        420,
+        13.5
+      ],
+      "color" : [
+        1,
+        0.88,
+        0.32,
+        1
+      ],
+      "createdAt" : "2026-11-03T10:15:00.250Z",
+      "groupID" : "2A000000-0000-4000-8000-000000000100",
+      "id" : "2A000000-0000-4000-8000-000000000001",
+      "modifiedAt" : "2026-11-03T10:15:00.250Z",
+      "pageIndex" : 0,
+      "type" : "highlight"
+    },
+    {
+      "bounds" : [
+        72,
+        685.25,
+        200.5,
+        13.5
+      ],
+      "color" : [
+        1,
+        0.88,
+        0.32,
+        1
+      ],
+      "createdAt" : "2026-11-03T10:15:00.250Z",
+      "groupID" : "2A000000-0000-4000-8000-000000000100",
+      "id" : "2A000000-0000-4000-8000-000000000002",
+      "modifiedAt" : "2026-11-03T10:15:00.250Z",
+      "pageIndex" : 0,
+      "type" : "highlight"
+    },
+    {
+      "bounds" : [
+        90,
+        500,
+        300,
+        12
+      ],
+      "color" : [
+        1,
+        0.48,
+        0.45,
+        1
+      ],
+      "createdAt" : "2026-11-03T10:15:00.250Z",
+      "id" : "2A000000-0000-4000-8000-000000000003",
+      "modifiedAt" : "2026-11-03T10:20:30.500Z",
+      "pageIndex" : 1,
+      "type" : "underline"
+    },
+    {
+      "anchorRects" : [
+        [
+          72,
+          640,
+          150,
+          12
+        ]
+      ],
+      "bounds" : [
+        224,
+        637,
+        15,
+        15
+      ],
+      "color" : [
+        1,
+        0.95,
+        0.62,
+        1
+      ],
+      "createdAt" : "2026-11-03T10:15:00.250Z",
+      "id" : "2A000000-0000-4000-8000-000000000004",
+      "modifiedAt" : "2026-11-03T10:20:30.500Z",
+      "pageIndex" : 0,
+      "text" : "Why is this a martingale?\nCheck the filtration.",
+      "type" : "note"
+    },
+    {
+      "anchorRects" : [
+
+      ],
+      "bounds" : [
+        500,
+        100,
+        15,
+        15
+      ],
+      "color" : [
+        1,
+        0.95,
+        0.62,
+        1
+      ],
+      "createdAt" : "2026-11-03T10:15:00.250Z",
+      "id" : "2A000000-0000-4000-8000-000000000005",
+      "modifiedAt" : "2026-11-03T10:15:00.250Z",
+      "pageIndex" : 2,
+      "text" : "Point note",
+      "type" : "note"
+    },
+    {
+      "bounds" : [
+        330,
+        347,
+        154.1,
+        58
+      ],
+      "color" : [
+        0,
+        0,
+        0,
+        1
+      ],
+      "createdAt" : "2026-11-03T10:15:00.250Z",
+      "fontSize" : 18,
+      "id" : "2A000000-0000-4000-8000-000000000006",
+      "modifiedAt" : "2026-11-03T10:20:30.500Z",
+      "pageIndex" : 1,
+      "source" : "\\mathbb{E}\\left[\\int_0^T \\sigma_t\\,dW_t\\right] = 0",
+      "type" : "latex"
+    }
+  ],
+  "documentHash" : "7d1e4c2b9a8f6e5d4c3b2a1908f7e6d5c4b3a29180f7e6d5c4b3a2918070605",
+  "fileNameHint" : "lecture-notes.pdf",
+  "pageCount" : 3,
+  "pathHint" : "/Users/someone/Lectures/lecture-notes.pdf",
+  "revision" : 12,
+  "savedAt" : "2026-11-03T10:21:00.000Z"
+}}

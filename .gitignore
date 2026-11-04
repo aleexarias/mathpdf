@@ -1,0 +1,20 @@
+# macOS
+.DS_Store
+
+# Build output: make build, test and install
+/build/
+
+# Generated from project.yml by XcodeGen (make project)
+*.xcodeproj/
+/Support/Info.plist
+
+# Xcode and Swift Package Manager
+xcuserdata/
+DerivedData/
+.build/
+.swiftpm/
+
+# Editors
+.vscode/
+.idea/
+*.swp
