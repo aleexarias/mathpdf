@@ -66,7 +66,7 @@ private struct DocumentView: View {
                 .labelsHidden()
                 .padding(8)
                 switch sidebar {
-                case .pages: ThumbnailSidebar(viewer: viewer)
+                case .pages: PageSidebarView(sidebar: viewer.sidebar)
                 case .annotations:
                     AnnotationList(session: session, editor: viewer.editor)
                 }

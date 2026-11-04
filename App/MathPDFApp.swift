@@ -23,25 +23,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Besides the standard ⌘Z and ⇧⌘Z: ⌃Z undoes, and ⌘Y or ⌃Y redoes. They
     /// go through the same responder chain as Edit > Undo and Redo, so typing
     /// in a text field undoes the typing, and anywhere else it undoes
-    /// annotation changes.
+    /// annotation and page changes. While a page change is being written,
+    /// they all do nothing: the step under it can't be undone until it's
+    /// done.
     private func addUndoShortcuts() {
         NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             let modifiers = event.modifierFlags.intersection([
                 .command, .control, .option, .shift,
             ])
+            let key = event.charactersIgnoringModifiers?.lowercased()
             let action: String? =
-                switch (
-                    event.charactersIgnoringModifiers?.lowercased(), modifiers
-                ) {
-                case ("z", .control): "undo:"
-                case ("y", .control), ("y", .command): "redo:"
+                switch (key, modifiers) {
+                case ("z", .control), ("z", .command): "undo:"
+                case ("y", .control), ("y", .command),
+                    ("z", [.command, .shift]):
+                    "redo:"
                 default: nil
                 }
             guard let action else { return event }
-            MainActor.assumeIsolated {
+            let handled = MainActor.assumeIsolated {
+                if SaveCoordinator.shared.isChangingPages { return true }
+                // the menu handles its own shortcuts
+                if key == "z", modifiers.contains(.command) { return false }
                 _ = NSApp.sendAction(Selector(action), to: nil, from: nil)
+                return true
             }
-            return nil
+            return handled ? nil : event
         }
     }
 

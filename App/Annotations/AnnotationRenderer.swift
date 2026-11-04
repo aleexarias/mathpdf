@@ -2,27 +2,26 @@ import AppKit
 import MathPDFCore
 import MathPDFLaTeX
 import MathPDFRendering
-import Observation
 import PDFKit
 
 /// Keeps the PDFKit annotations on the pages in line with the session's
 /// records, and shows which item is selected. One per window.
-@MainActor @Observable
+@MainActor
 final class AnnotationRenderer {
-    /// Bumped for a page whenever its annotations are redrawn, so its
-    /// thumbnail can refresh.
-    private(set) var pageVersions: [Int: Int] = [:]
+    /// Called with the pages whose annotations were redrawn, so their
+    /// thumbnails can refresh.
+    var onPagesRedrawn: (([Int]) -> Void)?
 
-    @ObservationIgnored private let session: DocumentSession
-    @ObservationIgnored private let pdfView: AnnotationPDFView
+    private let session: DocumentSession
+    private let pdfView: AnnotationPDFView
     /// What's on the pages for each annotation, and the record it was drawn
     /// from.
-    @ObservationIgnored private var rendered: [UUID: Rendered] = [:]
+    private var rendered: [UUID: Rendered] = [:]
     /// The underline item whose text is shown selected, and whether that text
     /// selection is still ours (rather than one the user made since).
-    @ObservationIgnored private var underlineTextShown: UUID?
-    @ObservationIgnored private var textSelectionIsOurs = false
-    @ObservationIgnored private var isSettingTextSelection = false
+    private var underlineTextShown: UUID?
+    private var textSelectionIsOurs = false
+    private var isSettingTextSelection = false
 
     /// What's on the pages for one annotation: its marks and the colour each
     /// is normally drawn in.
@@ -49,6 +48,14 @@ final class AnnotationRenderer {
     /// underline.
     func textSelectionChanged() {
         if !isSettingTextSelection { textSelectionIsOurs = false }
+    }
+
+    /// The PDF view shows a new document: what was drawn went with the old
+    /// one.
+    func documentReplaced() {
+        rendered.removeAll()
+        underlineTextShown = nil
+        textSelectionIsOurs = false
     }
 
     // MARK: Drawing
@@ -86,8 +93,8 @@ final class AnnotationRenderer {
         }
         if !changedPages.isEmpty { pdfView.removeLayersOfRemovedAnnotations() }
         showSelection()
-        for page in changedPages {
-            pageVersions[document.index(for: page), default: 0] += 1
+        if !changedPages.isEmpty {
+            onPagesRedrawn?(changedPages.map(document.index(for:)))
         }
     }
 

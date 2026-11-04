@@ -1,10 +1,12 @@
 import PDFKit
 
 /// A PDFView that hands clicks, drags, Delete/Esc and right-clicks on mathpdf
-/// annotations to the annotation editor. Everything else (text selection,
-/// links, scrolling) works as usual.
+/// annotations to the annotation editor, and pastes copied pages after the
+/// page on screen. Everything else (text selection, links, scrolling) works
+/// as usual.
 final class AnnotationPDFView: PDFView {
     weak var editor: AnnotationEditor?
+    weak var viewer: Viewer?
 
     private var drag: (page: PDFPage, start: CGPoint)?
     /// Set while PDFView handles a click or text selection that the active
@@ -383,6 +385,29 @@ final class AnnotationPDFView: PDFView {
         default: handled = event.keyCode == 53 && editor?.cancel() == true
         }
         if !handled { super.keyDown(with: event) }
+    }
+
+    /// Only pages copied in mathpdf: a PDF from another app is more likely a
+    /// snippet than pages.
+    @objc func paste(_ sender: Any?) {
+        guard let viewer else { return }
+        Task {
+            await viewer.pasteFromClipboard(
+                at: viewer.pageIndex + 1, fromOtherApps: false)
+        }
+    }
+
+    /// Takes Paste only while there are pages to paste. PDFView enables any
+    /// menu item it's asked about, and its validation can't be extended from
+    /// Swift.
+    override func responds(to selector: Selector!) -> Bool {
+        if selector == #selector(paste(_:)) {
+            guard Thread.isMainThread else { return false }
+            return MainActor.assumeIsolated {
+                viewer?.canPastePages(fromOtherApps: false) == true
+            }
+        }
+        return super.responds(to: selector)
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {

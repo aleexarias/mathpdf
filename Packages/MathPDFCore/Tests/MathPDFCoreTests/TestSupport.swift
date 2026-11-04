@@ -6,6 +6,11 @@ import Testing
 
 let testHash = String(repeating: "ab", count: 32)
 
+/// Every save is flushed to the drive, so suites that save a lot slow each
+/// other's saves when run in parallel, and the autosave timing tests measure
+/// saves. The suites nested in this one run one test at a time.
+@Suite(.serialized) enum DiskHeavyTests {}
+
 func makeTemporaryRoot() -> URL {
     let url = FileManager.default.temporaryDirectory
         .appending(

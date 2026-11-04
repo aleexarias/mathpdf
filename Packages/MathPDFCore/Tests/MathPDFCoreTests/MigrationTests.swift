@@ -134,6 +134,50 @@ import Testing
             a[5].bounds == CGRect(x: 330, y: 347, width: 154.1, height: 58))
     }
 
+    /// The format as of schema 3, frozen before the next change to it.
+    @Test func v3FixtureLoadsUnchanged() throws {
+        let decoded = try StoreFile.decode(fixtureData("store-v3"))
+        #expect(decoded.schemaVersion == 3)
+        let set = decoded.set
+        func id(_ n: Int) -> UUID {
+            let text = String(format: "3A000000-0000-4000-8000-%012d", n)
+            return UUID(uuidString: text)!
+        }
+        #expect(
+            set.documentHash
+                == "5e4d3c2b1a09f8e7d6c5b4a39281706f"
+                + "5e4d3c2b1a09f8e7d6c5b4a392817060")
+        #expect(set.fileNameHint == "problem-set.pdf")
+        #expect(set.pageCount == 4)
+        #expect(set.revision == 21)
+        #expect(set.savedAt == Timestamp.parse("2026-11-04T09:06:00.000Z"))
+        #expect(set.annotations.map(\.id) == (1...6).map(id))
+        let a = set.annotations
+        #expect(a[0].groupID == id(100) && a[1].groupID == id(100))
+        #expect(a[2].kind == .underline && a[2].pageIndex == 1)
+        #expect(
+            a[2].modifiedAt == Timestamp.parse("2026-11-04T09:05:30.750Z"))
+        #expect(
+            a[3].kind
+                == .note(
+                    text: "Use Itô's lemma here.",
+                    anchorRects: [
+                        CGRect(x: 72, y: 600, width: 120, height: 12)
+                    ]))
+        #expect(
+            a[4].kind
+                == .latex(
+                    source: #"dX_t = \mu X_t\,dt + \sigma X_t\,dW_t"#,
+                    fontSize: 16))
+        #expect(
+            a[5].kind
+                == .textBox(text: "Exam question\nsee lecture 7", fontSize: 13)
+        )
+        #expect(
+            a[5].bounds == CGRect(x: 72, y: 300, width: 110, height: 36.5))
+        #expect(a[5].color == RGBAColor(red: 0.2, green: 0.4, blue: 0.9))
+    }
+
     @Test func migrationIsDeterministic() throws {
         let data = try fixtureData("store-v1")
         #expect(try StoreFile.decode(data).set == StoreFile.decode(data).set)

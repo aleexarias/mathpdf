@@ -25,6 +25,30 @@ import Testing
     /// `alwaysKeepsTheFirstVersion`).
     private var firstVersion: SnapshotInfo { snapshot(ageSeconds: 2000 * day) }
 
+    /// For copies of big PDFs: everything for an hour, one per hour for a
+    /// day, one per day for a week, at least the newest, and the oldest is
+    /// thinned like the rest.
+    @Test func theLargeScheduleIsShorter() {
+        let recent = snapshot(ageSeconds: 0.5 * hour)
+        // 09:45 and 09:15
+        let sameHour = [
+            snapshot(ageSeconds: 2.25 * hour),
+            snapshot(ageSeconds: 2.75 * hour),
+        ]
+        let sameDay = [
+            snapshot(ageSeconds: 2 * day),
+            snapshot(ageSeconds: 2 * day + hour),
+        ]
+        let old = snapshot(ageSeconds: 8 * day)
+        let deleted = RetentionPolicy.snapshotsToDelete(
+            [recent, old] + sameHour + sameDay, now: now, schedule: .large,
+            keepingFirst: false)
+        #expect(Set(deleted) == [sameHour[1], sameDay[1], old])
+        let alone = RetentionPolicy.snapshotsToDelete(
+            [old], now: now, schedule: .large, keepingFirst: false)
+        #expect(alone.isEmpty)
+    }
+
     @Test func keepsEverythingFromTheLast24Hours() {
         let snapshots = stride(from: 0, through: day, by: 97).map {
             snapshot(ageSeconds: $0)

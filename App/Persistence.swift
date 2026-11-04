@@ -31,9 +31,19 @@ final class SaveCoordinator {
         sessions.add(session)
     }
 
+    var isChangingPages: Bool {
+        sessions.allObjects.contains(where: \.isChangingPages)
+    }
+
+    /// An open document, for pages dragged from its window.
+    func session(_ id: UUID) -> DocumentSession? {
+        sessions.allObjects.first { $0.id == id }
+    }
+
     func windowClosed(_ session: DocumentSession) {
         let id = ObjectIdentifier(session)
         closingSaves[id] = Task {
+            await session.finishPageChanges()
             await session.flush()
             if session.autosaver.hasUnsavedChanges {
                 failedClosedSessions.append(session)
@@ -50,6 +60,7 @@ final class SaveCoordinator {
 
     func flushAll() async {
         for session in sessions.allObjects + failedClosedSessions {
+            await session.finishPageChanges()
             await session.flush()
         }
         for task in closingSaves.values {

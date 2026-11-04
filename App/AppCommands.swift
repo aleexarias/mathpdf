@@ -20,8 +20,9 @@ struct AppCommands: Commands {
     }
 
     var body: some Commands {
-        // Replaces Save As, Duplicate, Rename and Revert, which don't apply to
-        // a read-only PDF.
+        // Replaces Save As, Duplicate, Rename and Revert. Annotations are
+        // saved in their own store, and page changes are written as they're
+        // made.
         CommandGroup(replacing: .saveItem) {
             Button("Save") { Task { await session?.flush() } }
                 .keyboardShortcut("s")

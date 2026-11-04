@@ -1,9 +1,9 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// The PDF as opened. Documents are opened for viewing only: the app never
-/// writes to the original file. Annotations live in the annotation store
-/// instead.
+/// The PDF as opened. Documents are opened for viewing: annotations live in
+/// the annotation store, and the only writes to the file are page changes,
+/// which `DocumentSession` makes itself.
 struct PDFFile: FileDocument {
     static var readableContentTypes: [UTType] { [.pdf] }
     static var writableContentTypes: [UTType] { [] }

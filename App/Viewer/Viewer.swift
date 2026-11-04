@@ -1,13 +1,15 @@
 import Observation
 import PDFKit
 
-/// Owns the PDFView for one window: page tracking, zoom, search, and the
-/// annotation editor.
+/// Owns the PDFView for one window: page tracking, zoom, search, page
+/// changes, and the annotation editor.
 @MainActor @Observable
 final class Viewer: NSObject {
     @ObservationIgnored let pdfView: AnnotationPDFView
     @ObservationIgnored let editor: AnnotationEditor
-    let pageCount: Int
+    @ObservationIgnored let session: DocumentSession
+    @ObservationIgnored lazy var sidebar = PageSidebar(viewer: self)
+    private(set) var pageCount: Int
     private(set) var pageIndex = 0
 
     private(set) var matches: [PDFSelection] = []
@@ -19,7 +21,6 @@ final class Viewer: NSObject {
     @ObservationIgnored private var zoomAnimation: Task<Void, Never>?
     @ObservationIgnored private var searchItemObservation:
         NSKeyValueObservation?
-    @ObservationIgnored private let session: DocumentSession
     @ObservationIgnored private let versionsWindow = VersionsWindow()
 
     init(document: PDFDocument, session: DocumentSession) {
@@ -43,6 +44,18 @@ final class Viewer: NSObject {
         NotificationCenter.default.addObserver(
             self, selector: #selector(pageChanged), name: .PDFViewPageChanged,
             object: pdfView)
+        pdfView.viewer = self
+        session.onPagesChanged = { [weak self] in
+            self?.showChangedPages(newIndices: $0)
+        }
+        session.fileDocumentProvider = { [weak self] in
+            self?.pdfView.window.flatMap(
+                NSDocumentController.shared.document(for:))
+        }
+        editor.onPagesRedrawn = { [weak self] in
+            self?.sidebar.pagesRedrawn($0)
+        }
+        sidebar.reload()
     }
 
     /// Around the pages: a mid grey in dark mode, lighter than PDFView's
@@ -56,6 +69,7 @@ final class Viewer: NSObject {
         guard let page = pdfView.currentPage, let document = pdfView.document
         else { return }
         pageIndex = document.index(for: page)
+        sidebar.showCurrentPage()
     }
 
     func go(toPage index: Int) {
@@ -72,6 +86,41 @@ final class Viewer: NSObject {
 
     func closeVersions() {
         versionsWindow.close()
+    }
+
+    // MARK: Pages
+
+    /// Shows the document after a page change where the old one was, or at
+    /// the page that took a deleted page's place.
+    private func showChangedPages(newIndices: [Int?]) {
+        guard let document = session.pdf else { return }
+        let anchor = pdfView.zoomAnchor()
+        let oldIndex = anchor.flatMap { pdfView.document?.index(for: $0.page) }
+        let scale = pdfView.scaleFactor
+        zoomAnimation?.cancel()
+        clearSearch()
+        closeVersions()
+        editor.documentReplaced()
+        pdfView.document = document
+        pageCount = document.pageCount
+        if !pdfView.fitsWidth { pdfView.scaleFactor = scale }
+        pdfView.layoutDocumentView()
+        pdfView.updateGeometry()
+        if let anchor, let oldIndex {
+            let newIndex =
+                newIndices.indices.contains(oldIndex)
+                ? newIndices[oldIndex] : nil
+            if let newIndex, let page = document.page(at: newIndex) {
+                pdfView.restore(
+                    AnnotationPDFView.ZoomAnchor(
+                        page: page, pagePoint: anchor.pagePoint,
+                        viewPoint: anchor.viewPoint))
+            } else {
+                go(toPage: min(oldIndex, pageCount - 1))
+            }
+        }
+        pageChanged()
+        sidebar.reload()
     }
 
     // MARK: Export

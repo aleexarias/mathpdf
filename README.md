@@ -20,14 +20,20 @@ pull request.
   formula to move it.
 - **Text boxes**: drag to move one, and drag its right edge to set how wide its
   lines wrap.
+- **Pages**: drag thumbnails in the sidebar to reorder pages, or onto another
+  open PDF's sidebar to copy them there. Cut, copy, paste and delete work
+  too, on one page or several (⌘- or ⇧-click), and annotations go with their
+  pages.
 - **Search** the document and step through the matches.
 - **Version history**: compare any earlier version with the current one side by
-  side, and restore it.
+  side, and restore it. Earlier page orders are versions too: go back to the
+  pages as they were before you moved, deleted or pasted some, and keep
+  today's annotations on them.
 - **Export** an annotated copy that Preview, Acrobat and other PDF apps can
   show and edit, or **Quick Export** it to `<name>_annotated.pdf` next to the
   original.
 
-### Your PDFs are never modified
+### Annotations never change your PDF
 
 Annotations are stored separately from the PDF, in
 `~/Library/Application Support/mathpdf/documents/<fingerprint of the PDF>/`
@@ -39,9 +45,19 @@ Annotations are stored separately from the PDF, in
   crash or power loss can't leave a half-written file.
 - Earlier versions are kept as follows: every save for 24 hours, one per hour
   for 7 days, one per day for 30 days. The first version is always kept, plus
-  at least 4 others.
+  at least 4 others. A document whose pages changed counts as one, with all
+  its page orders together.
 - If a PDF is changed by another app, it counts as a new PDF. File → Relink
   Annotations… copies the old annotations onto it.
+- Moving, deleting and pasting pages is the one thing that changes the PDF
+  itself. It's written straight away and can be undone while the PDF is open.
+  Each page order it leaves behind is kept in the data folder, so File →
+  Browse All Versions… can bring it back. Once a page order has no versions
+  left, it's deleted with its copy of the PDF. These copies take at most 500
+  MB per PDF, and those of a PDF over 100 MB thin out sooner: everything for
+  an hour, one per hour for a day, one per day for a week. The first page
+  order is always kept, unless it's over 500 MB by itself. PDFs whose
+  security settings forbid page changes are left alone.
 - If you ever want to modify your PDF with another app, simply export it and it
   will be ready to go.
 
@@ -67,6 +83,9 @@ removed and an edited one goes back to how it was.
 | Leave the current tool | Esc |
 | Finish editing a note, formula or text box | ⌘↩ or Esc |
 | Delete the selected annotation | Delete |
+| Select several pages in the sidebar | ⌘-click, ⇧-click |
+| Cut, copy, paste or delete pages in the sidebar | ⌘X, ⌘C, ⌘V, Delete |
+| Paste pages after the page you're on | ⌘V |
 | Undo, Redo | ⌘Z, ⇧⌘Z (also ⌃Z, ⌘Y, ⌃Y) |
 | Save now | ⌘S |
 | Export…, Quick Export | ⇧⌘E, ⌥⇧⌘E |
@@ -118,12 +137,14 @@ is open, and `make install` won't replace it while it's running.
 
 ### Layout
 
-- `App/`: viewer, annotation tools and editors, version browser, export.
+- `App/`: viewer, annotation tools and editors, page sidebar, version
+  browser, export.
 - `Packages/MathPDFCore/Sources/`, in three modules:
   - `MathPDFCore`: annotation model, crash-safe store, autosave, version
-    retention, edit rules.
+    retention, edit rules, page rearranging.
   - `MathPDFLaTeX`: LaTeX typesetting and the compatibility layer.
-  - `MathPDFRendering`: drawing annotations as PDF annotations, and export.
+  - `MathPDFRendering`: drawing annotations as PDF annotations, export, and
+    writing PDFs whose pages changed.
 - `Packages/MathPDFCore/Tests/`: unit tests, including fixtures for every past
   data format.
 - `project.yml`: the Xcode project, as an XcodeGen spec.

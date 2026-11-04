@@ -13,6 +13,9 @@ private let log = Logger(subsystem: "mathpdf", category: "persistence")
 ///     documents/<hash>/store.json                  current state
 ///     documents/<hash>/snapshots/<time>-r<n>.json  immutable history
 ///     documents/<hash>/store.corrupt-<time>.json   damaged, never deleted
+///     documents/<hash>/pages.json                  page IDs (`PageIdentity`)
+///     documents/<hash>/document.pdf                the PDF, once a page
+///                                                  change left these pages
 public actor AnnotationStore {
     public enum LoadResult: Sendable {
         /// Nothing has ever been saved for this PDF.
@@ -42,10 +45,14 @@ public actor AnnotationStore {
     }
 
     public nonisolated let rootURL: URL
-    private let now: @Sendable () -> Date
+    let now: @Sendable () -> Date
     private var lastWrittenRevision: [String: Int] = [:]
     private var blocked: [String: BlockReason] = [:]
     private var beforeStoreReplace: (@Sendable () throws -> Void)?
+    /// The folders of each document whose page IDs are stored. Built on first
+    /// use, then kept up to date by this store's own writes.
+    var foldersByDocument: [UUID: Set<String>]?
+    let limits: CopyLimits
 
     public static var defaultRootURL: URL {
         URL.applicationSupportDirectory.appending(
@@ -54,10 +61,12 @@ public actor AnnotationStore {
 
     public init(
         rootURL: URL = AnnotationStore.defaultRootURL,
-        now: @escaping @Sendable () -> Date = { Date() }
+        now: @escaping @Sendable () -> Date = { Date() },
+        limits: CopyLimits = .standard
     ) {
         self.rootURL = rootURL
         self.now = now
+        self.limits = limits
     }
 
     // MARK: Loading
@@ -181,6 +190,19 @@ public actor AnnotationStore {
         return true
     }
 
+    /// Saves the annotations of a PDF whose pages just changed, under its new
+    /// hash. That PDF may have been seen before (undoing a change brings back
+    /// earlier bytes), so the revision is raised past anything stored for it.
+    public func saveAfterPageChange(_ set: AnnotationSet) throws
+        -> AnnotationSet
+    {
+        var set = set
+        set.revision =
+            max(set.revision, try revisionOnDisk(set.documentHash) ?? 0) + 1
+        try save(set)
+        return set
+    }
+
     /// The revision of the current file on disk, if it can be read. Also
     /// refuses to touch a file written by a newer app version.
     private func revisionOnDisk(_ hash: String) throws -> Int? {
@@ -200,20 +222,64 @@ public actor AnnotationStore {
         }
     }
 
+    /// Thins out the versions of the document `hash` belongs to. The
+    /// snapshots of all its page orders count as one history, and a page
+    /// order left with none goes entirely, its kept PDF too. Then the copies
+    /// of the PDF are kept within `limits`.
     private func prune(_ hash: String) {
-        for snapshot in RetentionPolicy.snapshotsToDelete(
-            snapshots(documentHash: hash), now: now())
-        {
-            do { try FileManager.default.removeItem(at: snapshot.url) } catch {
-                log.error(
-                    """
-                    Couldn't prune \
-                    \(snapshot.url.lastPathComponent, privacy: .public): \
-                    \(error.localizedDescription, privacy: .public)
-                    """
-                )
+        let documentID = pageIdentity(documentHash: hash)?.documentID
+        let orders = documentID.map { folders(of: $0).union([hash]) } ?? [hash]
+        var all: [SnapshotInfo] = []
+        var orderOfSnapshot: [URL: String] = [:]
+        for order in orders {
+            for snapshot in snapshots(documentHash: order) {
+                all.append(snapshot)
+                orderOfSnapshot[snapshot.url] = order
             }
         }
+        // It holds the first version, which is never deleted.
+        let firstOrder = all.min {
+            ($0.date, $0.revision) < ($1.date, $1.revision)
+        }.flatMap { orderOfSnapshot[$0.url] }
+        for snapshot in RetentionPolicy.snapshotsToDelete(all, now: now()) {
+            remove(snapshot.url)
+        }
+        for order in orders where order != hash && isEmpty(order) {
+            guard remove(folderURL(order)) else { continue }
+            lastWrittenRevision[order] = nil
+            if let documentID {
+                foldersByDocument?[documentID]?.remove(order)
+            }
+        }
+        if let documentID {
+            pruneCopies(of: documentID, current: hash, first: firstOrder)
+        }
+    }
+
+    /// Deletes a file or folder, and logs it if that fails.
+    @discardableResult
+    func remove(_ url: URL) -> Bool {
+        do {
+            try FileManager.default.removeItem(at: url)
+            return true
+        } catch {
+            log.error(
+                """
+                Couldn't delete \(url.path, privacy: .public): \
+                \(error.localizedDescription, privacy: .public)
+                """
+            )
+            return false
+        }
+    }
+
+    /// No versions left, and no damaged file, which is kept for inspection.
+    private func isEmpty(_ hash: String) -> Bool {
+        let names =
+            (try? FileManager.default.contentsOfDirectory(
+                atPath: folderURL(hash).path)) ?? []
+        return snapshots(documentHash: hash).isEmpty
+            && !names.contains { $0.hasPrefix("store.corrupt") }
     }
 
     // MARK: History
@@ -254,7 +320,7 @@ public actor AnnotationStore {
                 at: documentsURL, includingPropertiesForKeys: nil)) ?? []
         return folders.compactMap { folder in
             let hash = folder.lastPathComponent
-            guard let set = newestReadableSet(hash) else { return nil }
+            guard let set = newestSet(documentHash: hash) else { return nil }
             return StoredSetSummary(
                 documentHash: hash, fileNameHint: set.fileNameHint,
                 pathHint: set.pathHint,
@@ -270,7 +336,7 @@ public actor AnnotationStore {
     public func relink(from sourceHash: String, to target: AnnotationSet)
         throws -> AnnotationSet
     {
-        guard let source = newestReadableSet(sourceHash) else {
+        guard let source = newestSet(documentHash: sourceHash) else {
             throw AnnotationStoreError.nothingToRelink(sourceHash)
         }
         var set = target
@@ -285,7 +351,7 @@ public actor AnnotationStore {
 
     /// The current file if it can be read, otherwise the newest readable
     /// snapshot. Writes nothing.
-    private func newestReadableSet(_ hash: String) -> AnnotationSet? {
+    public func newestSet(documentHash hash: String) -> AnnotationSet? {
         if let data = try? Data(contentsOf: storeURL(hash)),
             let decoded = try? StoreFile.decode(data)
         {
@@ -298,7 +364,7 @@ public actor AnnotationStore {
 
     // MARK: Files
 
-    private var documentsURL: URL {
+    var documentsURL: URL {
         rootURL.appending(path: "documents", directoryHint: .isDirectory)
     }
 

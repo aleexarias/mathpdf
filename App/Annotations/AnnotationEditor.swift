@@ -34,9 +34,6 @@ final class AnnotationEditor: NSObject {
     private(set) var highlightColor = Palette.yellow
     private(set) var underlineColor = Palette.red
     private(set) var hasTextSelection = false
-    func renderVersion(ofPage index: Int) -> Int {
-        renderer.pageVersions[index] ?? 0
-    }
 
     @ObservationIgnored private let session: DocumentSession
     @ObservationIgnored private let pdfView: AnnotationPDFView
@@ -120,6 +117,18 @@ final class AnnotationEditor: NSObject {
             document.hasUndoManager = false
         }
         return window.undoManager
+    }
+
+    var onPagesRedrawn: (([Int]) -> Void)? {
+        get { renderer.onPagesRedrawn }
+        set { renderer.onPagesRedrawn = newValue }
+    }
+
+    /// The PDF view is about to show a new document, after a page change.
+    func documentReplaced() {
+        gesture = nil
+        editOnMouseUp = nil
+        renderer.documentReplaced()
     }
 
     /// While a note or formula is being written the page stays put, so it

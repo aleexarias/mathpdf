@@ -1,127 +1,9 @@
-import MathPDFCore
-import Observation
 import SwiftUI
 
-/// The saved versions of a PDF's annotations, one per snapshot, newest first,
-/// and last the first version: the PDF as it is, with no annotations.
-@MainActor @Observable
-final class VersionHistory {
-    struct Version: Identifiable {
-        enum ID: Hashable {
-            case original
-            case snapshot(URL)
-        }
-
-        /// Nil for the first version, which isn't saved: the PDF itself.
-        let snapshot: SnapshotInfo?
-        /// Read in the background after the list appears; nil until then.
-        var annotations: [Annotation]?
-        var isDamaged = false
-        var id: ID { snapshot.map { .snapshot($0.url) } ?? .original }
-        var isOriginal: Bool { snapshot == nil }
-
-        static let original = Version(snapshot: nil, annotations: [])
-    }
-
-    /// Saved versions grouped by day, then the first version on its own.
-    struct Section: Identifiable {
-        let id: Date?
-        let title: String
-        let versions: [Version]
-    }
-
-    private(set) var versions: [Version] = []
-    private(set) var isLoading = true
-    var selection: Version.ID?
-    private let session: DocumentSession
-
-    init(session: DocumentSession) {
-        self.session = session
-    }
-
-    var selected: Version? { versions.first { $0.id == selection } }
-
-    var sections: [Section] {
-        let calendar = Calendar.current
-        var saved: [Date: [Version]] = [:]
-        for version in versions {
-            guard let snapshot = version.snapshot else { continue }
-            saved[calendar.startOfDay(for: snapshot.date), default: []]
-                .append(version)
-        }
-        let days = saved.sorted { $0.key > $1.key }.map { day, versions in
-            Section(
-                id: day, title: Self.title(forDay: day), versions: versions)
-        }
-        let first = versions.filter(\.isOriginal)
-        guard !first.isEmpty else { return days }
-        return days + [
-            Section(id: nil, title: "First Version", versions: first)
-        ]
-    }
-
-    /// Saves what's pending first, so the newest version is what's on screen
-    /// now. The list appears straight away; each version's annotations are
-    /// read after it.
-    func load() async {
-        await session.flush()
-        var snapshots: [SnapshotInfo] = []
-        if let hash = session.annotationSet?.documentHash {
-            snapshots = await Persistence.store.snapshots(documentHash: hash)
-        }
-        versions = snapshots.map { Version(snapshot: $0) } + [.original]
-        for index in versions.indices {
-            if let snapshot = versions[index].snapshot {
-                if let set = try? await Persistence.store.readSnapshot(
-                    snapshot)
-                {
-                    versions[index].annotations = set.annotations
-                } else {
-                    versions[index].isDamaged = true
-                }
-            }
-            // Start on the newest version that's different from now.
-            if selection == nil, let annotations = versions[index].annotations,
-                annotations != session.annotations
-            {
-                selection = versions[index].id
-            }
-        }
-        if selection == nil { selection = versions.first?.id }
-        isLoading = false
-    }
-
-    func isSameAsNow(_ version: Version) -> Bool {
-        version.annotations == session.annotations
-    }
-
-    /// "Today", "Yesterday", "Monday 2 November", or with the year when it
-    /// isn't this year's.
-    static func title(forDay day: Date) -> String {
-        let calendar = Calendar.current
-        if calendar.isDateInToday(day) { return "Today" }
-        if calendar.isDateInYesterday(day) { return "Yesterday" }
-        let sameYear =
-            calendar.component(.year, from: day)
-            == calendar.component(.year, from: .now)
-        return sameYear
-            ? day.formatted(.dateTime.weekday(.wide).day().month(.wide))
-            : day.formatted(.dateTime.weekday(.wide).day().month(.wide).year())
-    }
-
-    /// "today at 14:32", "yesterday at 09:10", "on 2 November 2026 at 18:05".
-    static func when(_ date: Date) -> String {
-        let calendar = Calendar.current
-        let time = date.formatted(date: .omitted, time: .shortened)
-        if calendar.isDateInToday(date) { return "today at \(time)" }
-        if calendar.isDateInYesterday(date) { return "yesterday at \(time)" }
-        return "on \(date.formatted(date: .long, time: .omitted)) at \(time)"
-    }
-}
-
 /// The annotations as they are now beside an earlier version, the versions
-/// listed by day, and a way to go back to one. Restoring can be undone and is
-/// saved as a new version, so it never loses anything.
+/// listed by day, and a way to go back to one: to its annotations, or to its
+/// pages with today's annotations. Restoring can be undone and is saved as a
+/// new version, so it never loses anything.
 struct VersionBrowser: View {
     let session: DocumentSession
     let startPage: Int
@@ -140,21 +22,34 @@ struct VersionBrowser: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 0) {
-                pane(title: "Now", detail: count(session.annotations.count)) {
+                pane(
+                    title: "Now",
+                    detail: summary(
+                        pages: session.pdf?.pageCount ?? 0,
+                        annotations: session.annotations.count)
+                ) {
                     AnnotatedPDFPreview(
-                        data: session.data, annotations: session.annotations,
+                        data: session.data, documentHash: currentHash,
+                        annotations: session.annotations,
                         startPage: startPage,
                         link: scrollLink, role: .follower)
                 }
                 Divider()
                 pane(title: selectedTitle, detail: selectedDetail) {
-                    if let annotations = history.selected?.annotations {
-                        AnnotatedPDFPreview(
-                            data: session.data, annotations: annotations,
-                            startPage: startPage,
-                            link: scrollLink, role: .leader)
-                    } else {
-                        placeholder
+                    HStack(spacing: 0) {
+                        if let annotations = history.selected?.annotations {
+                            AnnotatedPDFPreview(
+                                data: history.selected?.pdf ?? session.data,
+                                documentHash: history.selected?.pageOrder?
+                                    .documentHash ?? currentHash,
+                                annotations: annotations,
+                                startPage: startPage,
+                                link: scrollLink, role: .leader)
+                        } else {
+                            placeholder
+                        }
+                        LinkedScrollBar(link: scrollLink)
+                            .frame(width: LinkedScroller.width)
                     }
                 }
                 Divider()
@@ -163,19 +58,17 @@ struct VersionBrowser: View {
             }
             Divider()
             HStack {
-                Text(
-                    """
-                    Restoring replaces the annotations shown on the left. \
-                    You can undo it, and the current ones stay in this list.
-                    """
-                )
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                Text(footnote)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 Spacer()
                 Button("Done", action: close)
                     .keyboardShortcut(.cancelAction)
-                Button("Restore This Version") { restore() }
-                    .disabled(!canRestore)
+                Button(
+                    history.selected?.pageOrder == nil
+                        ? "Restore This Version" : "Restore These Pages"
+                ) { restore() }
+                .disabled(!canRestore)
             }
             .padding(12)
         }
@@ -231,22 +124,26 @@ struct VersionBrowser: View {
     private func row(_ version: VersionHistory.Version) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: 6) {
-                if let snapshot = version.snapshot {
-                    Text(
-                        snapshot.date.formatted(
-                            date: .omitted, time: .standard))
+                if let date = version.date {
+                    Text(date.formatted(date: .omitted, time: .standard))
                 } else {
-                    Text("Original PDF")
+                    Text(
+                        history.hasEarlierPages
+                            ? "Without annotations" : "Original PDF")
                 }
-                if version.annotations != nil, history.isSameAsNow(version) {
+                if version.pageOrder != nil {
+                    tag("Earlier pages")
+                } else if version.annotations != nil,
+                    history.isSameAsNow(version)
+                {
                     tag("Same as now")
                 }
             }
             Group {
                 if version.isDamaged {
                     Text("Couldn't be read").foregroundStyle(.red)
-                } else if let annotations = version.annotations {
-                    Text(count(annotations.count))
+                } else if version.annotations != nil {
+                    Text(summary(version))
                 } else {
                     Text(" ")
                 }
@@ -265,39 +162,84 @@ struct VersionBrowser: View {
             .background(.quaternary, in: Capsule())
     }
 
+    private var currentHash: String {
+        session.annotationSet?.documentHash ?? ""
+    }
+
     private var selectedTitle: String {
-        guard let version = history.selected else { return "Earlier Version" }
-        guard let snapshot = version.snapshot else { return "First Version" }
-        return "Saved \(VersionHistory.when(snapshot.date))"
+        guard let version = history.selected, let date = version.date else {
+            return history.selected == nil
+                ? "Earlier Version" : "First Version"
+        }
+        return version.pageOrder == nil
+            ? "Saved \(VersionHistory.when(date))"
+            : "Pages before the change \(VersionHistory.when(date))"
     }
 
     private var selectedDetail: String {
-        guard let version = history.selected else { return " " }
-        if version.isOriginal {
-            return "The original PDF, without annotations"
+        guard let version = history.selected, version.annotations != nil
+        else { return " " }
+        return summary(version)
+    }
+
+    private var footnote: String {
+        if history.selected?.pageOrder != nil {
+            return """
+                Restoring puts the pages back as they were and keeps today's \
+                annotations on them. You can undo it.
+                """
         }
-        return version.annotations.map { count($0.count) } ?? " "
+        return """
+            Restoring replaces the annotations shown on the left. You can \
+            undo it, and the current ones stay in this list.
+            """
     }
 
     private var canRestore: Bool {
-        guard session.canEdit, let version = history.selected,
-            version.annotations != nil
+        guard let version = history.selected, version.annotations != nil,
+            !version.isDamaged
         else { return false }
-        return !history.isSameAsNow(version)
+        if version.pageOrder != nil { return session.canChangePages }
+        return session.canEdit && !history.isSameAsNow(version)
     }
 
     private func restore() {
-        guard let annotations = history.selected?.annotations else { return }
-        session.restore(annotations)
-        Task { await session.flush() }  // saved as a new version right away
+        guard let version = history.selected,
+            let annotations = version.annotations
+        else { return }
+        if case .pageOrder(let order, let earlier) = version.kind {
+            let session = session
+            Task { await session.restorePages(order, earlier: earlier) }
+        } else {
+            session.restore(annotations)
+            // saved as a new version right away
+            Task { await session.flush() }
+        }
         close()
     }
 
-    private func count(_ n: Int) -> String {
-        switch n {
-        case 0: "No annotations"
-        case 1: "1 annotation"
-        default: "\(n) annotations"
-        }
+    /// A saved version is shown on today's pages; an earlier page order has
+    /// its own.
+    private func summary(_ version: VersionHistory.Version) -> String {
+        summary(
+            pages: version.pageOrder?.identity.pageIDs.count
+                ?? session.pdf?.pageCount ?? 0,
+            annotations: version.annotations?.count ?? 0,
+            leftOut: version.leftOut)
+    }
+
+    /// "8 pages · 3 annotations". Annotations of a version on pages that are
+    /// gone now can't be shown, and that's said too.
+    private func summary(pages: Int, annotations: Int, leftOut: Int = 0)
+        -> String
+    {
+        let marks =
+            switch annotations {
+            case 0: "no annotations"
+            case 1: "1 annotation"
+            default: "\(annotations) annotations"
+            }
+        let text = "\(pages == 1 ? "1 page" : "\(pages) pages") · \(marks)"
+        return leftOut == 0 ? text : "\(text), \(leftOut) on removed pages"
     }
 }
