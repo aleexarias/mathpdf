@@ -12,7 +12,6 @@ final class NoteDraft {
 
 struct NoteEditorView: View {
     @Bindable var draft: NoteDraft
-    let isNew: Bool
     let done: () -> Void
     @FocusState private var focused: Bool
 
@@ -29,13 +28,9 @@ struct NoteEditorView: View {
                 )
                 .frame(width: 280, height: 140)
             HStack {
-                Text(
-                    isNew
-                        ? "Esc to finish. Empty notes are discarded."
-                        : "Esc to finish."
-                )
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                Text("Esc/⌘↩ to finish.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 Spacer()
                 DoneButton(action: done)
             }

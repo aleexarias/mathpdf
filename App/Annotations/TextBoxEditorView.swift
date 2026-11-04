@@ -18,7 +18,6 @@ final class TextBoxDraft {
 /// the box on the page, not this.
 struct TextBoxEditorView: View {
     @Bindable var draft: TextBoxDraft
-    let isNew: Bool
     let done: () -> Void
     @FocusState private var focused: Bool
 
@@ -37,13 +36,9 @@ struct TextBoxEditorView: View {
             HStack {
                 FontSizeStepper(size: $draft.fontSize, range: 6...72)
                 Spacer()
-                Text(
-                    isNew
-                        ? "Esc to finish. Empty text boxes are deleted."
-                        : "Esc to finish."
-                )
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                Text("Esc/⌘↩ to finish.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 DoneButton(action: done)
             }
         }

@@ -2,21 +2,30 @@ import MathPDFCore
 import Observation
 import SwiftUI
 
-/// The saved versions of a PDF's annotations: one per snapshot, newest first.
+/// The saved versions of a PDF's annotations, one per snapshot, newest first,
+/// and last the first version: the PDF as it is, with no annotations.
 @MainActor @Observable
 final class VersionHistory {
     struct Version: Identifiable {
-        let snapshot: SnapshotInfo
+        enum ID: Hashable {
+            case original
+            case snapshot(URL)
+        }
+
+        /// Nil for the first version, which isn't saved: the PDF itself.
+        let snapshot: SnapshotInfo?
         /// Read in the background after the list appears; nil until then.
         var annotations: [Annotation]?
         var isDamaged = false
-        /// The oldest snapshot, which is never deleted.
-        let isFirst: Bool
-        var id: URL { snapshot.url }
+        var id: ID { snapshot.map { .snapshot($0.url) } ?? .original }
+        var isOriginal: Bool { snapshot == nil }
+
+        static let original = Version(snapshot: nil, annotations: [])
     }
 
-    struct Day: Identifiable {
-        let id: Date
+    /// Saved versions grouped by day, then the first version on its own.
+    struct Section: Identifiable {
+        let id: Date?
         let title: String
         let versions: [Version]
     }
@@ -32,14 +41,23 @@ final class VersionHistory {
 
     var selected: Version? { versions.first { $0.id == selection } }
 
-    var days: [Day] {
+    var sections: [Section] {
         let calendar = Calendar.current
-        let grouped = Dictionary(grouping: versions) {
-            calendar.startOfDay(for: $0.snapshot.date)
+        var saved: [Date: [Version]] = [:]
+        for version in versions {
+            guard let snapshot = version.snapshot else { continue }
+            saved[calendar.startOfDay(for: snapshot.date), default: []]
+                .append(version)
         }
-        return grouped.sorted { $0.key > $1.key }.map { day, versions in
-            Day(id: day, title: Self.title(forDay: day), versions: versions)
+        let days = saved.sorted { $0.key > $1.key }.map { day, versions in
+            Section(
+                id: day, title: Self.title(forDay: day), versions: versions)
         }
+        let first = versions.filter(\.isOriginal)
+        guard !first.isEmpty else { return days }
+        return days + [
+            Section(id: nil, title: "First Version", versions: first)
+        ]
     }
 
     /// Saves what's pending first, so the newest version is what's on screen
@@ -47,20 +65,20 @@ final class VersionHistory {
     /// read after it.
     func load() async {
         await session.flush()
-        guard let hash = session.annotationSet?.documentHash else {
-            return isLoading = false
+        var snapshots: [SnapshotInfo] = []
+        if let hash = session.annotationSet?.documentHash {
+            snapshots = await Persistence.store.snapshots(documentHash: hash)
         }
-        let snapshots = await Persistence.store.snapshots(documentHash: hash)
-        versions = snapshots.enumerated().map { index, snapshot in
-            Version(snapshot: snapshot, isFirst: index == snapshots.count - 1)
-        }
+        versions = snapshots.map { Version(snapshot: $0) } + [.original]
         for index in versions.indices {
-            if let set = try? await Persistence.store.readSnapshot(
-                versions[index].snapshot)
-            {
-                versions[index].annotations = set.annotations
-            } else {
-                versions[index].isDamaged = true
+            if let snapshot = versions[index].snapshot {
+                if let set = try? await Persistence.store.readSnapshot(
+                    snapshot)
+                {
+                    versions[index].annotations = set.annotations
+                } else {
+                    versions[index].isDamaged = true
+                }
             }
             // Start on the newest version that's different from now.
             if selection == nil, let annotations = versions[index].annotations,
@@ -188,10 +206,6 @@ struct VersionBrowser: View {
         VStack(spacing: 8) {
             if history.isLoading {
                 ProgressView()
-            } else if history.versions.isEmpty {
-                Text("No saved versions yet.").font(.headline)
-                Text("Versions are saved automatically as you annotate.")
-                    .foregroundStyle(.secondary)
             } else if history.selected?.isDamaged == true {
                 Label(
                     "This version couldn't be read.",
@@ -204,9 +218,9 @@ struct VersionBrowser: View {
 
     private var versionList: some View {
         List(selection: $history.selection) {
-            ForEach(history.days) { day in
-                Section(day.title) {
-                    ForEach(day.versions) { version in
+            ForEach(history.sections) { section in
+                Section(section.title) {
+                    ForEach(section.versions) { version in
                         row(version).tag(version.id)
                     }
                 }
@@ -217,10 +231,13 @@ struct VersionBrowser: View {
     private func row(_ version: VersionHistory.Version) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: 6) {
-                Text(
-                    version.snapshot.date.formatted(
-                        date: .omitted, time: .standard))
-                if version.isFirst { tag("First version") }
+                if let snapshot = version.snapshot {
+                    Text(
+                        snapshot.date.formatted(
+                            date: .omitted, time: .standard))
+                } else {
+                    Text("Original PDF")
+                }
                 if version.annotations != nil, history.isSameAsNow(version) {
                     tag("Same as now")
                 }
@@ -250,16 +267,14 @@ struct VersionBrowser: View {
 
     private var selectedTitle: String {
         guard let version = history.selected else { return "Earlier Version" }
-        return version.isFirst
-            ? "First Version"
-            : "Saved \(VersionHistory.when(version.snapshot.date))"
+        guard let snapshot = version.snapshot else { return "First Version" }
+        return "Saved \(VersionHistory.when(snapshot.date))"
     }
 
     private var selectedDetail: String {
         guard let version = history.selected else { return " " }
-        if version.isFirst {
-            return "Saved \(VersionHistory.when(version.snapshot.date))"
-                + (version.annotations.map { " · " + count($0.count) } ?? "")
+        if version.isOriginal {
+            return "The original PDF, without annotations"
         }
         return version.annotations.map { count($0.count) } ?? " "
     }
@@ -279,6 +294,10 @@ struct VersionBrowser: View {
     }
 
     private func count(_ n: Int) -> String {
-        n == 1 ? "1 annotation" : "\(n) annotations"
+        switch n {
+        case 0: "No annotations"
+        case 1: "1 annotation"
+        default: "\(n) annotations"
+        }
     }
 }

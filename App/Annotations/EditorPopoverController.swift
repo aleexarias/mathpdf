@@ -62,7 +62,7 @@ final class EditorPopoverController: NSObject {
         else { return }
         let draft = NoteDraft(text: text)
         present(
-            NoteEditorView(draft: draft, isNew: isNew) { [weak self] in
+            NoteEditorView(draft: draft) { [weak self] in
                 self?.tryToFinish()
             },
             for: note, isNew: isNew, draft: .note(draft))
@@ -75,7 +75,7 @@ final class EditorPopoverController: NSObject {
         else { return }
         let draft = LaTeXDraft(source: source, fontSize: fontSize)
         present(
-            LaTeXEditorView(draft: draft, isNew: isNew) { [weak self] in
+            LaTeXEditorView(draft: draft) { [weak self] in
                 self?.tryToFinish()
             },
             for: formula, isNew: isNew, draft: .latex(draft))
@@ -88,7 +88,7 @@ final class EditorPopoverController: NSObject {
         else { return }
         let draft = TextBoxDraft(text: text, fontSize: fontSize)
         present(
-            TextBoxEditorView(draft: draft, isNew: isNew) { [weak self] in
+            TextBoxEditorView(draft: draft) { [weak self] in
                 self?.tryToFinish()
             }, for: box, isNew: isNew,
             draft: .textBox(draft))

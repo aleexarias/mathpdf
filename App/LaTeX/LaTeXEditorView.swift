@@ -34,7 +34,6 @@ final class LaTeXDraft {
 
 struct LaTeXEditorView: View {
     @Bindable var draft: LaTeXDraft
-    let isNew: Bool
     let done: () -> Void
     @FocusState private var focused: Bool
 
@@ -66,16 +65,8 @@ struct LaTeXEditorView: View {
                                 ? AnyShapeStyle(.red)
                                 : AnyShapeStyle(.secondary))
                     if draft.isErrorCurrent {
-                        let outcome =
-                            isNew
-                            ? "delete this formula" : "discard this change"
-                        Text(
-                            """
-                            Fix it, or press Esc or click away again to \
-                            \(outcome).
-                            """
-                        )
-                        .foregroundStyle(.secondary)
+                        Text("Fix the formula or quit editing.")
+                            .foregroundStyle(.secondary)
                     }
                 }
                 .font(.callout)
@@ -85,7 +76,7 @@ struct LaTeXEditorView: View {
             HStack {
                 FontSizeStepper(size: $draft.fontSize, range: 8...48)
                 Spacer()
-                Text("Esc to finish. Empty formulas are deleted.")
+                Text("Esc/⌘↩ to finish.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 DoneButton(action: done)
