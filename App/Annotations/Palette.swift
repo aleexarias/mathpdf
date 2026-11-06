@@ -17,9 +17,7 @@ enum Palette {
     static let purple = RGBAColor(red: 0.78, green: 0.64, blue: 1)
     static let blue = RGBAColor(red: 0.52, green: 0.76, blue: 1)
     static let green = RGBAColor(red: 0.52, green: 0.86, blue: 0.56)
-    /// New notes start in this.
     static let noteYellow = RGBAColor(red: 1, green: 0.95, blue: 0.62)
-    /// New formulas start in this.
     static let black = RGBAColor(red: 0, green: 0, blue: 0)
 
     static let entries: [Entry] = [

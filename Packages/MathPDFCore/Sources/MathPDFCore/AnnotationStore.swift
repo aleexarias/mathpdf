@@ -190,10 +190,11 @@ public actor AnnotationStore {
         return true
     }
 
-    /// Saves the annotations of a PDF whose pages just changed, under its new
-    /// hash. That PDF may have been seen before (undoing a change brings back
-    /// earlier bytes), so the revision is raised past anything stored for it.
-    public func saveAfterPageChange(_ set: AnnotationSet) throws
+    /// Saves `set` as the current state whatever is stored, raising its
+    /// revision past that, which stays in the history. For when a window
+    /// arrives at a PDF already stored: undoing a page change brings back
+    /// earlier bytes.
+    public func saveAsNewest(_ set: AnnotationSet) throws
         -> AnnotationSet
     {
         var set = set
@@ -256,7 +257,6 @@ public actor AnnotationStore {
         }
     }
 
-    /// Deletes a file or folder, and logs it if that fails.
     @discardableResult
     func remove(_ url: URL) -> Bool {
         do {
@@ -311,42 +311,38 @@ public actor AnnotationStore {
         public var id: String { documentHash }
     }
 
-    /// Every annotation set on disk that can be read, newest first. Used to
-    /// offer a relink when a PDF's hash matches nothing (e.g. it was edited
-    /// elsewhere).
-    public func storedSets() -> [StoredSetSummary] {
+    /// The annotation sets on disk that are worth copying onto another PDF,
+    /// newest first: those that can be read and have annotations. A document
+    /// counts once, as it is now, not with the page orders it has left, and
+    /// `hash` and `document`, the PDF being copied onto, are left out.
+    public func storedSets(except hash: String, document: UUID? = nil)
+        -> [StoredSetSummary]
+    {
         let folders =
             (try? FileManager.default.contentsOfDirectory(
                 at: documentsURL, includingPropertiesForKeys: nil)) ?? []
-        return folders.compactMap { folder in
-            let hash = folder.lastPathComponent
-            guard let set = newestSet(documentHash: hash) else { return nil }
-            return StoredSetSummary(
-                documentHash: hash, fileNameHint: set.fileNameHint,
-                pathHint: set.pathHint,
-                pageCount: set.pageCount,
-                annotationCount: set.annotations.count, savedAt: set.savedAt)
+        let sets = folders.compactMap { folder -> AnnotationSet? in
+            folder.lastPathComponent == hash
+                ? nil : newestSet(documentHash: folder.lastPathComponent)
         }
-        .sorted { $0.savedAt > $1.savedAt }
-    }
-
-    /// Copies the annotations stored for `sourceHash` onto another PDF,
-    /// described by `target` (its hash, hints and page count). The source set
-    /// is left untouched.
-    public func relink(from sourceHash: String, to target: AnnotationSet)
-        throws -> AnnotationSet
-    {
-        guard let source = newestSet(documentHash: sourceHash) else {
-            throw AnnotationStoreError.nothingToRelink(sourceHash)
-        }
-        var set = target
-        set.annotations = source.annotations
-        set.relinkedFrom = sourceHash
-        set.revision =
-            max(source.revision, try revisionOnDisk(target.documentHash) ?? 0)
-            + 1
-        try save(set)
-        return set
+        .sorted { ($0.savedAt, $0.revision) > ($1.savedAt, $1.revision) }
+        var seen = Set([document].compactMap { $0 })
+        return
+            sets.filter { set in
+                guard
+                    let id = pageIdentity(documentHash: set.documentHash)?
+                        .documentID
+                else { return true }
+                return seen.insert(id).inserted
+            }
+            .filter { !$0.annotations.isEmpty }
+            .map {
+                StoredSetSummary(
+                    documentHash: $0.documentHash,
+                    fileNameHint: $0.fileNameHint, pathHint: $0.pathHint,
+                    pageCount: $0.pageCount,
+                    annotationCount: $0.annotations.count, savedAt: $0.savedAt)
+            }
     }
 
     /// The current file if it can be read, otherwise the newest readable
@@ -436,11 +432,10 @@ public actor AnnotationStore {
     }
 }
 
-public enum AnnotationStoreError: Error, LocalizedError {
+enum AnnotationStoreError: Error, LocalizedError {
     case savingBlocked(AnnotationStore.BlockReason)
-    case nothingToRelink(String)
 
-    public var errorDescription: String? {
+    var errorDescription: String? {
         switch self {
         case .savingBlocked(.newerSchema(let version)):
             """
@@ -452,8 +447,6 @@ public enum AnnotationStoreError: Error, LocalizedError {
             The saved annotations for this PDF can't be read, so saving is \
             paused to avoid overwriting them.
             """
-        case .nothingToRelink(let hash):
-            "No readable annotations were found for \(hash)."
         }
     }
 }

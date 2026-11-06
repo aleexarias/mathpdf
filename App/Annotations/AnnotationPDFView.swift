@@ -1,3 +1,4 @@
+import MathPDFCore
 import PDFKit
 
 /// A PDFView that hands clicks, drags, Delete/Esc and right-clicks on mathpdf
@@ -53,6 +54,10 @@ final class AnnotationPDFView: PDFView {
             x: covered.left, y: isFlipped ? covered.top : covered.bottom,
             width: max(1, clip.width - covered.left - covered.right),
             height: max(1, bounds.height - covered.top - covered.bottom))
+    }
+
+    func pageFrame(of page: PDFPage) -> PageFrame {
+        PageFrame(box: page.bounds(for: displayBox), rotation: page.rotation)
     }
 
     /// The zoom at which the pages, with their usual margins, exactly fill the

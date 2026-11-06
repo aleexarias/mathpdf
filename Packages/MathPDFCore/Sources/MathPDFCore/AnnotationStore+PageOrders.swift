@@ -75,7 +75,7 @@ extension AnnotationStore {
         }
         var set = set
         if newestSet(documentHash: hash) == nil {
-            set = try saveAfterPageChange(set)
+            set = try saveAsNewest(set)
         }
         let url = keptPDFURL(hash)
         if !FileManager.default.fileExists(atPath: url.path) {

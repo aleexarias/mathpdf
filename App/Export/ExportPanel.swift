@@ -27,7 +27,7 @@ enum ExportPanel {
                 (session.fileName as NSString).deletingPathExtension
                 + "_annotated.pdf"
         }
-        let guardian = OriginalGuard(original: session.fileURL)
+        let guardian = OriginalGuard(original: session.currentFileURL)
         panel.delegate = guardian
         let finish: @MainActor (NSApplication.ModalResponse) -> Void = {
             response in

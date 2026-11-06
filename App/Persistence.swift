@@ -11,92 +11,14 @@ enum Persistence {
         }
             ?? AnnotationStore.defaultRootURL
     )
-}
 
-/// Tracks open documents so their annotations get saved when a window closes,
-/// when the app goes to the background, and before it quits.
-@MainActor
-final class SaveCoordinator {
-    static let shared = SaveCoordinator()
+    /// The user's own LaTeX commands, for every window.
+    @MainActor static let latexCommands = LaTeXCommandLibrary(
+        file: LaTeXCommandsFile(rootURL: store.rootURL))
 
-    private let sessions = NSHashTable<DocumentSession>.weakObjects()
-    /// Saves started by closing windows. Each task keeps its session alive
-    /// until it finishes.
-    private var closingSaves: [ObjectIdentifier: Task<Void, Never>] = [:]
-    /// Closed documents whose last save failed, kept so quitting can warn
-    /// about them.
-    private var failedClosedSessions: [DocumentSession] = []
-
-    func register(_ session: DocumentSession) {
-        sessions.add(session)
-    }
-
-    var isChangingPages: Bool {
-        sessions.allObjects.contains(where: \.isChangingPages)
-    }
-
-    /// An open document, for pages dragged from its window.
-    func session(_ id: UUID) -> DocumentSession? {
-        sessions.allObjects.first { $0.id == id }
-    }
-
-    func windowClosed(_ session: DocumentSession) {
-        let id = ObjectIdentifier(session)
-        closingSaves[id] = Task {
-            await session.finishPageChanges()
-            await session.flush()
-            if session.autosaver.hasUnsavedChanges {
-                failedClosedSessions.append(session)
-            }
-            closingSaves[id] = nil
-        }
-    }
-
-    func flushAllInBackground() {
-        for session in sessions.allObjects {
-            Task { await session.flush() }
-        }
-    }
-
-    func flushAll() async {
-        for session in sessions.allObjects + failedClosedSessions {
-            await session.finishPageChanges()
-            await session.flush()
-        }
-        for task in closingSaves.values {
-            await task.value
-        }
-        failedClosedSessions.removeAll { !$0.autosaver.hasUnsavedChanges }
-    }
-
-    /// Returns whether to go ahead and quit.
-    func confirmQuitIfAnythingUnsaved() -> Bool {
-        var seen = Set<ObjectIdentifier>()
-        let unsaved = (sessions.allObjects + failedClosedSessions).filter {
-            seen.insert(ObjectIdentifier($0)).inserted
-                && $0.autosaver.hasUnsavedChanges
-        }
-        guard !unsaved.isEmpty else { return true }
-        let alert = NSAlert()
-        alert.alertStyle = .critical
-        alert.messageText = "Some annotations couldn't be saved"
-        let names = unsaved.map(\.fileName).sorted().joined(separator: ", ")
-        let reason =
-            unsaved.compactMap { $0.autosaver.lastError?.localizedDescription }
-            .first ?? ""
-        alert.informativeText =
-            """
-            Recent changes to \(names) aren't on disk. \(reason)\n\nIf you \
-            quit now, those changes will be lost.
-            """
-        alert.addButton(withTitle: "Don't Quit")
-        alert.addButton(withTitle: "Quit Anyway")
-        return alert.runModal() == .alertSecondButtonReturn
-    }
-}
-
-enum DataFolder {
-    static func reveal(_ url: URL) {
+    /// Shows in Finder the folder of `session`'s annotations, or all of them.
+    @MainActor static func revealDataFolder(of session: DocumentSession?) {
+        let url = session?.dataFolderURL ?? store.rootURL
         try? FileManager.default.createDirectory(
             at: url, withIntermediateDirectories: true)
         NSWorkspace.shared.activateFileViewerSelecting([url])

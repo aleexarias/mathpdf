@@ -57,8 +57,7 @@ final class EditorPopoverController: NSObject {
     func editNote(_ id: UUID, isNew: Bool) {
         // an editor still open keeps what was typed
         guard tryToFinish() else { return }
-        guard let note = session.annotations.first(where: { $0.id == id }),
-            case .note(let text, _) = note.kind
+        guard let note = annotation(id), case .note(let text, _) = note.kind
         else { return }
         let draft = NoteDraft(text: text)
         present(
@@ -70,10 +69,11 @@ final class EditorPopoverController: NSObject {
 
     func editLaTeX(_ id: UUID, isNew: Bool) {
         guard tryToFinish() else { return }
-        guard let formula = session.annotations.first(where: { $0.id == id }),
-            case .latex(let source, let fontSize) = formula.kind
+        guard let formula = annotation(id),
+            case .latex(let source, let fontSize, let expanded) = formula.kind
         else { return }
-        let draft = LaTeXDraft(source: source, fontSize: fontSize)
+        let draft = LaTeXDraft(
+            source: source, fontSize: fontSize, expanded: expanded)
         present(
             LaTeXEditorView(draft: draft) { [weak self] in
                 self?.tryToFinish()
@@ -83,7 +83,7 @@ final class EditorPopoverController: NSObject {
 
     func editTextBox(_ id: UUID, isNew: Bool) {
         guard tryToFinish() else { return }
-        guard let box = session.annotations.first(where: { $0.id == id }),
+        guard let box = annotation(id),
             case .textBox(let text, let fontSize) = box.kind
         else { return }
         let draft = TextBoxDraft(text: text, fontSize: fontSize)
@@ -186,11 +186,18 @@ final class EditorPopoverController: NSObject {
     }
 
     private func formulaError(in draft: Draft) -> String? {
-        guard case .latex(let draft) = draft,
-            case .invalid(let message) = LaTeXRenderer.typeset(
-                draft.source, fontSize: draft.fontSize, color: .black)
-        else { return nil }
-        return message
+        guard case .latex(let draft) = draft else { return nil }
+        do {
+            let expanded = try draft.expansion(
+                using: Persistence.latexCommands.current)
+            guard
+                case .invalid(let message) = LaTeXRenderer.typeset(
+                    expanded, fontSize: draft.fontSize, color: .black)
+            else { return nil }
+            return message
+        } catch {
+            return error.message
+        }
     }
 
     /// Saves what's in the editor right away; the popover's closing animation
@@ -207,18 +214,22 @@ final class EditorPopoverController: NSObject {
                 current.id, text: draft.text, isNew: current.isNew)
         case .latex(let draft) where saving:
             latexFontSize = draft.fontSize
+            let expanded =
+                (try? draft.expansion(
+                    using: Persistence.latexCommands.current)) ?? draft.source
             session.finishLaTeX(
-                current.id, source: draft.source, fontSize: draft.fontSize,
+                current.id, source: draft.source, expanded: expanded,
+                fontSize: draft.fontSize,
                 size: LaTeXRenderer.size(
-                    of: draft.source, fontSize: draft.fontSize),
-                isNew: current.isNew, within: pageBox(of: current.id))
+                    of: expanded, fontSize: draft.fontSize),
+                isNew: current.isNew, within: pageFrame(of: current.id))
         case .textBox(let draft):
             textFontSize = draft.fontSize
             session.finishTextBox(
                 current.id, text: draft.text, fontSize: draft.fontSize,
                 size: textBoxSize(
                     of: draft, id: current.id, isNew: current.isNew),
-                isNew: current.isNew, within: pageBox(of: current.id))
+                isNew: current.isNew, within: pageFrame(of: current.id))
         case .latex(let draft):
             if current.isNew {  // empty: removed
                 session.finishLaTeX(
@@ -231,32 +242,35 @@ final class EditorPopoverController: NSObject {
 
     /// A new text box is as wide as its longest line, up to the page's width
     /// less half-inch margins. An existing one keeps its width, which only
-    /// dragging its edge changes, and its text wraps to it.
+    /// dragging its edge changes, and its text wraps to it. All as seen on
+    /// screen.
     private func textBoxSize(of draft: TextBoxDraft, id: UUID, isNew: Bool)
         -> CGSize
     {
-        if !isNew,
-            let width = session.annotations.first(where: { $0.id == id })?
-                .bounds.width
-        {
+        let frame = pageFrame(of: id)
+        if !isNew, let size = annotation(id)?.bounds.size {
             return TextBoxStyle.size(
-                of: draft.text, fontSize: draft.fontSize, width: width)
+                of: draft.text, fontSize: draft.fontSize,
+                width: frame?.turned(size).width ?? size.width)
         }
         let widest = max(
             TextBoxStyle.minimumWidth(fontSize: draft.fontSize),
-            (pageBox(of: id)?.width ?? 612) - 72)
+            (frame?.shownSize.width ?? 612) - 72)
         return TextBoxStyle.size(
             of: draft.text, fontSize: draft.fontSize, maxWidth: widest)
     }
 
     /// The page an annotation is on, as shown, so a formula or text box that
     /// grows stays on it.
-    private func pageBox(of id: UUID) -> CGRect? {
-        guard
-            let annotation = session.annotations.first(where: { $0.id == id })
+    private func pageFrame(of id: UUID) -> PageFrame? {
+        guard let annotation = annotation(id),
+            let page = pdfView.document?.page(at: annotation.pageIndex)
         else { return nil }
-        return pdfView.document?.page(at: annotation.pageIndex)?.bounds(
-            for: pdfView.displayBox)
+        return pdfView.pageFrame(of: page)
+    }
+
+    private func annotation(_ id: UUID) -> Annotation? {
+        session.annotations.first { $0.id == id }
     }
 
     private func removeEventMonitor() {

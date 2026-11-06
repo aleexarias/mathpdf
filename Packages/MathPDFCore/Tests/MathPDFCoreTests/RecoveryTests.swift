@@ -200,33 +200,107 @@ import Testing
         }
     }
 
-    @Test func relinkCopiesAnnotationsAndLeavesTheSourceUntouched()
-        async throws
+    // MARK: What can be relinked from
+
+    private let otherHash = String(repeating: "ef", count: 32)
+
+    private func hashes(_ sets: [AnnotationStore.StoredSetSummary]) -> [String]
     {
+        sets.map(\.documentHash)
+    }
+
+    @Test func aSavedSetIsOfferedWithItsDetails() async throws {
         let store = AnnotationStore(rootURL: root, now: clock.now)
-        let source = try await saveTwoRevisions(store)
-        let sourceStoreBytes = try Data(contentsOf: store.storeURL(testHash))
+        _ = try await saveTwoRevisions(store)
+        let offered = await store.storedSets(except: otherHash)
+        #expect(hashes(offered) == [testHash])
+        #expect(offered.first?.annotationCount == 2)
+        #expect(offered.first?.fileNameHint == "paper.pdf")
+        #expect(offered.first?.pageCount == 12)
+    }
 
-        let editedHash = String(repeating: "ef", count: 32)
-        let candidates = await store.storedSets()
-        #expect(candidates.map(\.documentHash) == [testHash])
-        #expect(candidates.first?.annotationCount == 2)
-        #expect(candidates.first?.fileNameHint == "paper.pdf")
+    @Test func thePDFItselfIsntOffered() async throws {
+        let store = AnnotationStore(rootURL: root, now: clock.now)
+        _ = try await saveTwoRevisions(store)
+        #expect(await store.storedSets(except: testHash).isEmpty)
+    }
 
-        let target = AnnotationSet(
-            documentHash: editedHash, fileNameHint: "paper (edited).pdf",
-            pathHint: "/Users/me/Desktop/paper (edited).pdf", pageCount: 13)
-        let relinked = try await store.relink(from: testHash, to: target)
-        #expect(relinked.annotations == source.annotations)
-        #expect(relinked.relinkedFrom == testHash)
+    @Test func aSetWithNothingToCopyIsntOffered() async throws {
+        let store = AnnotationStore(rootURL: root, now: clock.now)
+        _ = try await saveTwoRevisions(store)
+        clock.advance(by: 60)
+        try await store.save(
+            makeSet(hash: otherHash, revision: 1, annotations: []))
+        #expect(hashes(await store.storedSets(except: "x")) == [testHash])
+    }
 
-        let loaded = try #require(
-            await AnnotationStore(rootURL: root).load(documentHash: editedHash)
-                .set)
-        #expect(loaded.annotations == source.annotations)
-        #expect(loaded.pageCount == 13)
-        #expect(loaded.relinkedFrom == testHash)
+    @Test func theNewestSetComesFirst() async throws {
+        let store = AnnotationStore(rootURL: root, now: clock.now)
+        try await store.save(
+            makeSet(revision: 1, annotations: [Samples.highlight()]))
+        clock.advance(by: 60)
+        try await store.save(
+            makeSet(
+                hash: otherHash, revision: 1,
+                annotations: [Samples.highlight()]))
         #expect(
-            try Data(contentsOf: store.storeURL(testHash)) == sourceStoreBytes)
+            hashes(await store.storedSets(except: "x"))
+                == [otherHash, testHash])
+    }
+
+    /// The pages of a document that have since moved aren't another set: only
+    /// how it is now is offered, and not at all when copying onto itself.
+    @Test func aDocumentIsOfferedOnce() async throws {
+        let store = AnnotationStore(rootURL: root, now: clock.now)
+        let identity = PageIdentity(pageCount: 12)
+        try await store.save(
+            makeSet(revision: 1, annotations: [Samples.highlight()]))
+        try await store.savePageIdentity(identity, documentHash: testHash)
+        clock.advance(by: 60)
+        try await store.save(
+            makeSet(
+                hash: otherHash, revision: 2,
+                annotations: [Samples.highlight()]))
+        try await store.savePageIdentity(identity, documentHash: otherHash)
+
+        #expect(hashes(await store.storedSets(except: "x")) == [otherHash])
+        #expect(
+            await store.storedSets(
+                except: "x", document: identity.documentID
+            ).isEmpty)
+    }
+
+    /// A document that has lost its annotations isn't offered through a page
+    /// order that still had them.
+    @Test func aDocumentCountsAsItIsNow() async throws {
+        let store = AnnotationStore(rootURL: root, now: clock.now)
+        let identity = PageIdentity(pageCount: 12)
+        try await store.save(
+            makeSet(revision: 1, annotations: [Samples.highlight()]))
+        try await store.savePageIdentity(identity, documentHash: testHash)
+        clock.advance(by: 60)
+        try await store.save(
+            makeSet(hash: otherHash, revision: 2, annotations: []))
+        try await store.savePageIdentity(identity, documentHash: otherHash)
+        #expect(await store.storedSets(except: "x").isEmpty)
+    }
+
+    @Test func aDamagedSetIsOfferedFromItsSnapshot() async throws {
+        let store = AnnotationStore(rootURL: root, now: clock.now)
+        let saved = try await saveTwoRevisions(store)
+        try Data("garbage".utf8).write(to: store.storeURL(testHash))
+        let offered = await AnnotationStore(rootURL: root).storedSets(
+            except: "x")
+        #expect(offered.first?.annotationCount == saved.annotations.count)
+    }
+
+    @Test func aSetThatCantBeReadIsntOffered() async throws {
+        let store = AnnotationStore(rootURL: root, now: clock.now)
+        _ = try await saveTwoRevisions(store)
+        try FileManager.default.removeItem(at: store.snapshotsURL(testHash))
+        try Data("garbage".utf8).write(to: store.storeURL(testHash))
+        #expect(
+            await AnnotationStore(rootURL: root).storedSets(except: "x")
+                .isEmpty)
     }
 }

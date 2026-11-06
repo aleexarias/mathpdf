@@ -1,3 +1,4 @@
+import MathPDFLaTeX
 import Observation
 import SwiftUI
 
@@ -20,10 +21,23 @@ final class LaTeXDraft {
     /// The last try to finish, so one click that reaches both the popover and
     /// the page counts once.
     @ObservationIgnored var lastAttempt: TimeInterval?
+    /// The text when the editor opened, and what it expanded to then.
+    @ObservationIgnored private let entered: (source: String, expanded: String)
 
-    init(source: String, fontSize: Double) {
+    init(source: String, fontSize: Double, expanded: String? = nil) {
         self.source = source
         self.fontSize = fontSize
+        entered = (source, expanded ?? source)
+    }
+
+    /// What's drawn for the text as it is now. A formula only expands again
+    /// if its text changed: otherwise it keeps what it was entered with,
+    /// whatever has happened to the commands since.
+    func expansion(using commands: LaTeXCommands) throws(LaTeXProblem)
+        -> String
+    {
+        guard source != entered.source else { return entered.expanded }
+        return try commands.expansion(of: source)
     }
 
     func show(error: String) {
@@ -42,13 +56,8 @@ struct LaTeXEditorView: View {
             TextEditor(text: $draft.source)
                 .font(.system(.body, design: .monospaced))
                 .autocorrectionDisabled()
-                .scrollContentBackground(.hidden)
                 .focused($focused)
-                .padding(4)
-                .background(
-                    .background.secondary,
-                    in: RoundedRectangle(cornerRadius: 6)
-                )
+                .writingArea()
                 .overlay {
                     if draft.isErrorCurrent {
                         RoundedRectangle(cornerRadius: 6).strokeBorder(
@@ -76,9 +85,7 @@ struct LaTeXEditorView: View {
             HStack {
                 FontSizeStepper(size: $draft.fontSize, range: 8...48)
                 Spacer()
-                Text("Esc/⌘↩ to finish.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                FinishHint()
                 DoneButton(action: done)
             }
         }

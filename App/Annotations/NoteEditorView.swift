@@ -19,18 +19,11 @@ struct NoteEditorView: View {
         VStack(alignment: .leading, spacing: 8) {
             TextEditor(text: $draft.text)
                 .font(.body)
-                .scrollContentBackground(.hidden)
                 .focused($focused)
-                .padding(4)
-                .background(
-                    .background.secondary,
-                    in: RoundedRectangle(cornerRadius: 6)
-                )
+                .writingArea()
                 .frame(width: 280, height: 140)
             HStack {
-                Text("Esc/⌘↩ to finish.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                FinishHint()
                 Spacer()
                 DoneButton(action: done)
             }

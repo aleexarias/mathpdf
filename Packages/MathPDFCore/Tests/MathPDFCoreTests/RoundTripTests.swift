@@ -32,7 +32,7 @@ import Testing
         let set = makeSet(revision: 1, annotations: [Samples.latex(source)])
         let decoded = try StoreFile.decode(StoreFile.encode(set))
         guard
-            case .latex(let roundTripped, let fontSize) = decoded.set
+            case .latex(let roundTripped, let fontSize, _) = decoded.set
                 .annotations.first?.kind
         else {
             Issue.record("LaTeX annotation lost")
@@ -91,5 +91,19 @@ import Testing
         #expect(throws: StoreFileError.checksumMismatch) {
             try StoreFile.decode(tampered)
         }
+    }
+
+    /// Bigger than the pieces it's read in.
+    @Test(arguments: [0, 1, 1 << 20, (1 << 20) + 1, 3 << 20])
+    func aFileHashesLikeItsBytes(_ size: Int) throws {
+        let url = makeTemporaryRoot().appending(path: "file")
+        let bytes = Data((0..<size).map { UInt8(truncatingIfNeeded: $0 * 31) })
+        try bytes.write(to: url)
+        #expect(try sha256Hex(ofFileAt: url) == sha256Hex(bytes))
+    }
+
+    @Test func aMissingFileCantBeHashed() {
+        let url = makeTemporaryRoot().appending(path: "not there")
+        #expect(throws: (any Error).self) { try sha256Hex(ofFileAt: url) }
     }
 }

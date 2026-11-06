@@ -87,7 +87,7 @@ struct DraggedPages {
     init?(from pasteboard: NSPasteboard) {
         guard let data = pasteboard.data(forType: .draggedPages),
             let item = try? JSONDecoder().decode(Item.self, from: data),
-            let session = SaveCoordinator.shared.session(item.session),
+            let session = OpenDocuments.shared.session(item.session),
             session.annotationSet?.documentHash == item.hash
         else { return nil }
         self.session = session

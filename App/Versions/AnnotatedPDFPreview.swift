@@ -31,11 +31,13 @@ struct AnnotatedPDFPreview: NSViewRepresentable {
         guard context.coordinator.shown != shown,
             let document = PDFDocument(data: data)
         else { return }
-        for annotation in annotations {
+        for annotation in SidewaysBoxes.corrected(annotations, in: document) {
             guard let page = document.page(at: annotation.pageIndex) else {
                 continue
             }
-            for (mark, _) in AnnotationMarks.marks(for: annotation) {
+            for (mark, _) in AnnotationMarks.marks(
+                for: annotation, pageRotation: page.rotation)
+            {
                 page.addAnnotation(mark)
             }
         }

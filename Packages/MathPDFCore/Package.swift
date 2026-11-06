@@ -19,7 +19,11 @@ let package = Package(
         /// Typesetting LaTeX formulas and drawing them on PDF pages.
         .target(
             name: "MathPDFLaTeX",
-            dependencies: [.product(name: "SwiftMath", package: "SwiftMath")]),
+            dependencies: [
+                "MathPDFCore",
+                .product(name: "SwiftMath", package: "SwiftMath"),
+            ],
+            resources: [.copy("Resources")]),
         /// Annotations as PDFKit annotations: on screen, and exported into a
         /// copy of the PDF.
         .target(

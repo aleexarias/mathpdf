@@ -49,20 +49,20 @@ public struct SnapshotInfo: Identifiable, Hashable, Sendable {
 /// It runs after each save, for the document that was saved: the snapshots of
 /// all its page orders together, as one history. A document that's no longer
 /// edited keeps its snapshots as they are.
-public enum RetentionPolicy {
-    public struct Schedule: Sendable {
-        public var keepAllFor: TimeInterval
-        public var keepHourlyFor: TimeInterval
-        public var keepDailyFor: TimeInterval
+enum RetentionPolicy {
+    struct Schedule: Sendable {
+        var keepAllFor: TimeInterval
+        var keepHourlyFor: TimeInterval
+        var keepDailyFor: TimeInterval
         /// Kept besides the first version.
-        public var minimumKept: Int
+        var minimumKept: Int
 
-        public static let standard = Schedule(
+        static let standard = Schedule(
             keepAllFor: day, keepHourlyFor: 7 * day, keepDailyFor: 30 * day,
             minimumKept: 4)
 
         /// For copies of PDFs over 100 MB: the same steps, each much shorter.
-        public static let large = Schedule(
+        static let large = Schedule(
             keepAllFor: hour, keepHourlyFor: day, keepDailyFor: 7 * day,
             minimumKept: 1)
     }
@@ -71,7 +71,7 @@ public enum RetentionPolicy {
     private static let day = 24 * hour
 
     /// With `keepingFirst` false, the oldest is thinned out like the rest.
-    public static func snapshotsToDelete(
+    static func snapshotsToDelete(
         _ snapshots: [SnapshotInfo], now: Date,
         schedule: Schedule = .standard, keepingFirst: Bool = true
     ) -> [SnapshotInfo] {

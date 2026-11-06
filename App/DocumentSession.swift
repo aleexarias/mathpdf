@@ -5,7 +5,7 @@ import PDFKit
 
 /// One open PDF: the document, its annotations, and how they are saved.
 /// Annotations never change the PDF; moving, deleting and pasting pages does
-/// (the Pages section).
+/// (see `DocumentSession+Pages`).
 @MainActor @Observable
 final class DocumentSession {
     enum Phase: Equatable {
@@ -21,12 +21,15 @@ final class DocumentSession {
             problem: String, snapshotDate: Date, annotationCount: Int)
         case blocked(AnnotationStore.BlockReason)
         case relinkSuggested(AnnotationStore.StoredSetSummary)
-        case relinked(fileName: String, annotationCount: Int)
+        case relinked(fileName: String, annotationCount: Int, leftOut: Int)
+        case exporting(URL)
         /// `id` tells one export's confirmation from the next, so each goes
         /// away on its own time.
         case exported(URL, annotationCount: Int, id: UUID)
         case error(String)
     }
+
+    enum SaveStatus { case saved, edited, failed }
 
     /// Tells this window's pages apart from another's when they're dragged.
     let id = UUID()
@@ -35,8 +38,29 @@ final class DocumentSession {
     let autosaver = Autosaver(store: Persistence.store)
     private(set) var phase: Phase = .loading
     private(set) var annotationSet: AnnotationSet? {
-        didSet { onChange?() }
+        didSet {
+            if let selection,
+                !annotations.contains(where: { $0.itemID == selection })
+            {
+                self.selection = nil
+            }
+            onChange?()
+            OpenDocuments.shared.annotationsChanged(in: self)
+        }
     }
+    /// The window that changes these annotations, when it isn't this one. See
+    /// `OpenDocuments`.
+    private(set) weak var editingSession: DocumentSession?
+    /// Set once the window has closed, which can be while still loading.
+    @ObservationIgnored var isWindowClosed = false
+    /// PDFKit won't put annotations on a locked PDF, or on one whose security
+    /// settings don't allow commenting. A locked PDF asks for its password
+    /// where its pages would be (see `readProtection`).
+    private(set) var isLocked = false
+    private(set) var allowsCommenting = true
+    /// The file no longer holds the PDF shown here (see `checkFile`).
+    private(set) var isFileChangedElsewhere = false
+    @ObservationIgnored private var checkedFileDate: Date?
     /// The selected annotation item: a multi-line markup's `groupID`, or a
     /// single annotation's ID.
     private(set) var selection: UUID? {
@@ -68,8 +92,10 @@ final class DocumentSession {
     /// The document's ID and its pages' IDs, kept with each page order, so
     /// annotations of any version can be put on the pages of any other.
     @ObservationIgnored private(set) var pageIdentity: PageIdentity?
-    /// The last page change queued (see `queuePageChange`).
+    /// The last page change queued.
     @ObservationIgnored private var pageTask: Task<Bool, Never>?
+    /// The last export started.
+    @ObservationIgnored private var exportTask: Task<Void, Never>?
 
     init(data: Data, fileURL: URL?) {
         self.data = data
@@ -78,9 +104,23 @@ final class DocumentSession {
         if pdf == nil {
             phase = .failed("This file couldn't be opened as a PDF.")
         }
+        readProtection()
     }
 
-    var fileName: String { fileURL?.lastPathComponent ?? "Untitled.pdf" }
+    /// Also after unlocking: the right password can lift the restrictions.
+    func readProtection() {
+        isLocked = pdf?.isLocked ?? false
+        allowsCommenting = pdf?.allowsCommenting ?? true
+    }
+
+    /// The document follows the file if it's moved while open.
+    var currentFileURL: URL? {
+        fileDocumentProvider?()?.fileURL ?? fileURL
+    }
+
+    var fileName: String {
+        currentFileURL?.lastPathComponent ?? "Untitled.pdf"
+    }
 
     var dataFolderURL: URL? {
         annotationSet.map { Persistence.store.folderURL($0.documentHash) }
@@ -88,11 +128,15 @@ final class DocumentSession {
 
     var annotations: [Annotation] { annotationSet?.annotations ?? [] }
 
-    /// Annotations can't be changed while loading, while saving is blocked, or
-    /// while pages are being written.
-    var canEdit: Bool { phase == .ready && savingAllowed && !isChangingPages }
+    /// Annotations can't be changed while loading, while saving is blocked,
+    /// while pages are being written, from a second window on one PDF, or when
+    /// the PDF doesn't allow them.
+    var canEdit: Bool { canWrite && !isLocked && allowsCommenting }
 
-    enum SaveStatus { case saved, edited, failed }
+    var canWrite: Bool {
+        phase == .ready && savingAllowed && editingSession == nil
+            && !isChangingPages
+    }
 
     /// For the title bar: "Edited" while changes aren't on disk yet.
     var saveStatus: SaveStatus {
@@ -103,7 +147,7 @@ final class DocumentSession {
     /// Relinking replaces this PDF's annotations, so it's only offered while
     /// there are none.
     var canRelink: Bool {
-        canEdit && annotations.isEmpty && !relinkCandidates.isEmpty
+        canEdit && annotations.isEmpty
     }
 
     func load() async {
@@ -117,11 +161,11 @@ final class DocumentSession {
             pathHint: fileURL?.path ?? "",
             pageCount: pdf.pageCount)
 
-        switch await Persistence.store.load(documentHash: hash) {
+        let result = await Persistence.store.load(documentHash: hash)
+        switch result {
         case .fresh:
             annotationSet = blank
             savingAllowed = true
-            await findRelinkCandidates(for: blank)
         case .loaded(let loaded, _):
             annotationSet = withCurrentLocation(loaded, from: blank)
             savingAllowed = true
@@ -136,17 +180,80 @@ final class DocumentSession {
             savingAllowed = false
             notice = .blocked(reason)
         }
+        let corrected = SidewaysBoxes.corrected(annotations, in: pdf)
+        annotationSet?.annotations = corrected
         let stored = await Persistence.store.pageIdentity(documentHash: hash)
         pageIdentity =
             stored?.pageIDs.count == pdf.pageCount
             ? stored : PageIdentity(pageCount: pdf.pageCount)
         phase = .ready
-        SaveCoordinator.shared.register(self)
+        checkedFileDate = fileDate()
+        OpenDocuments.shared.register(self)
+        if case .fresh = result { await suggestRelink() }
     }
 
     func flush() async {
         await autosaver.flush()
     }
+
+    // MARK: The file
+
+    private func fileDate() -> Date? {
+        currentFileURL.flatMap {
+            let attributes = try? FileManager.default.attributesOfItem(
+                atPath: $0.path)
+            return attributes?[.modificationDate] as? Date
+        }
+    }
+
+    /// Notices another app changing the file, like LaTeX compiling it again.
+    /// This window stays on what it opened: that's what its annotations are
+    /// stored for. Only looks inside the file if its date moved.
+    func checkFile() async {
+        guard !isChangingPages, let url = currentFileURL,
+            let hash = annotationSet?.documentHash
+        else { return }
+        let date = fileDate()
+        guard date != checkedFileDate else { return }
+        checkedFileDate = date
+        isFileChangedElsewhere = await Task.detached(priority: .utility) {
+            (try? PDFFileWriter.checkUnchanged(url, hash: hash)) == nil
+        }.value
+    }
+
+    // MARK: A second window on one PDF
+
+    /// Leaves the annotations to `editor`, showing them as they change; nil
+    /// takes them back, as they last were.
+    func follow(_ editor: DocumentSession?) {
+        if editor != nil, editingSession == nil {
+            // what's left to undo would overwrite what the editor does
+            undoManagerProvider?()?.removeAllActions(withTarget: self)
+            if case .relinkSuggested? = notice { notice = nil }
+        }
+        editingSession = editor
+        if let editor { showAnnotations(of: editor) }
+    }
+
+    func showAnnotations(of editor: DocumentSession) {
+        guard let set = editor.annotationSet, let current = annotationSet,
+            set.documentHash == current.documentHash
+        else { return }
+        annotationSet = withCurrentLocation(set, from: current)
+    }
+
+    /// The path is only a hint, refreshed on load; it's written with the next
+    /// real change.
+    private func withCurrentLocation(
+        _ loaded: AnnotationSet, from blank: AnnotationSet
+    ) -> AnnotationSet {
+        var set = loaded
+        set.fileNameHint = blank.fileNameHint
+        set.pathHint = blank.pathHint
+        return set
+    }
+
+    // MARK: Damaged data
 
     /// After `.blocked(.noValidData)`: start again from empty. The unreadable
     /// files stay on disk.
@@ -160,21 +267,84 @@ final class DocumentSession {
         notice = nil
     }
 
-    func relink(from source: AnnotationStore.StoredSetSummary) async {
-        guard canRelink, let current = annotationSet else { return }
-        do {
-            let relinked = try await Persistence.store.relink(
-                from: source.documentHash, to: current)
-            annotationSet = relinked
-            relinkCandidates.removeAll()
-            undoManagerProvider?()?.removeAllActions(withTarget: self)
-            notice = .relinked(
-                fileName: source.fileNameHint,
-                annotationCount: relinked.annotations.count)
-        } catch {
-            notice = .error(
-                "Couldn't relink annotations: \(error.localizedDescription)")
+    // MARK: Relinking
+
+    private func suggestRelink() async {
+        await findRelinkCandidates()
+        if canRelink, let best = relinkCandidates.first, isLikelyMatch(best) {
+            notice = .relinkSuggested(best)
         }
+    }
+
+    /// What can be copied onto this PDF right now, with what other windows
+    /// have yet to save.
+    func refreshRelinkCandidates() async {
+        await OpenDocuments.shared.flushAll()
+        await findRelinkCandidates()
+    }
+
+    /// An edit like any other, so it can be undone and can't be overwritten
+    /// by a save still pending, except that it's saved at once.
+    func relink(from source: AnnotationStore.StoredSetSummary) async {
+        await OpenDocuments.shared.flushAll()
+        guard canRelink, let pdf else {
+            notice = .error(
+                """
+                Annotations can only be relinked onto a PDF that has none, \
+                and this one has some now.
+                """)
+            return
+        }
+        guard
+            let saved = await Persistence.store.newestSet(
+                documentHash: source.documentHash)
+        else {
+            notice = .error(
+                """
+                The annotations saved for “\(source.fileNameHint)” can't be \
+                read any more.
+                """)
+            return
+        }
+        let pageBoxes = (0..<pdf.pageCount).map {
+            pdf.page(at: $0)?.bounds(for: .cropBox) ?? .zero
+        }
+        guard
+            let (edit, leftOut) = annotations.relinking(
+                SidewaysBoxes.corrected(saved.annotations, in: pdf),
+                pageBoxes: pageBoxes)
+        else {
+            notice = .error(
+                """
+                None of the annotations from “\(source.fileNameHint)” fit on \
+                the pages of this PDF, so nothing was changed.
+                """)
+            return
+        }
+        annotationSet?.relinkedFrom = source.documentHash
+        apply(edit)
+        await flush()
+        notice = .relinked(
+            fileName: source.fileNameHint,
+            annotationCount: edit.annotations.count, leftOut: leftOut)
+    }
+
+    /// A set saved for what looks like this same file comes first.
+    private func findRelinkCandidates() async {
+        guard let hash = annotationSet?.documentHash else { return }
+        let others = await Persistence.store.storedSets(
+            except: hash, document: pageIdentity?.documentID)
+        relinkCandidates =
+            others.filter(isLikelyMatch) + others.filter { !isLikelyMatch($0) }
+    }
+
+    private func isLikelyMatch(_ candidate: AnnotationStore.StoredSetSummary)
+        -> Bool
+    {
+        guard let annotationSet else { return false }
+        return candidate.fileNameHint == annotationSet.fileNameHint
+            || (!annotationSet.pathHint.isEmpty
+                && candidate.pathHint == annotationSet.pathHint)
     }
 
     // MARK: Editing
@@ -200,10 +370,18 @@ final class DocumentSession {
         pageIndex: Int, iconRect: CGRect, anchorRects: [CGRect],
         color: RGBAColor
     ) -> UUID? {
+        begin {
+            $0.beginningNote(
+                pageIndex: pageIndex, iconRect: iconRect,
+                anchorRects: anchorRects, color: color)
+        }
+    }
+
+    private func begin(_ make: ([Annotation]) -> (AnnotationEdit, UUID))
+        -> UUID?
+    {
         guard canEdit else { return nil }
-        let (edit, id) = annotations.beginningNote(
-            pageIndex: pageIndex, iconRect: iconRect, anchorRects: anchorRects,
-            color: color)
+        let (edit, id) = make(annotations)
         apply(edit)
         selection = id
         return id
@@ -218,23 +396,21 @@ final class DocumentSession {
     func beginLaTeX(
         pageIndex: Int, bounds: CGRect, fontSize: Double, color: RGBAColor
     ) -> UUID? {
-        guard canEdit else { return nil }
-        let (edit, id) = annotations.beginningLaTeX(
-            pageIndex: pageIndex, bounds: bounds, fontSize: fontSize,
-            color: color)
-        apply(edit)
-        selection = id
-        return id
+        begin {
+            $0.beginningLaTeX(
+                pageIndex: pageIndex, bounds: bounds, fontSize: fontSize,
+                color: color)
+        }
     }
 
     func finishLaTeX(
-        _ id: UUID, source: String, fontSize: Double, size: CGSize,
-        isNew: Bool, within page: CGRect? = nil
+        _ id: UUID, source: String, expanded: String? = nil, fontSize: Double,
+        size: CGSize, isNew: Bool, within page: PageFrame? = nil
     ) {
         apply(
             annotations.finishingLaTeX(
-                id, source: source, fontSize: fontSize, size: size,
-                isNew: isNew, within: page))
+                id, source: source, expanded: expanded, fontSize: fontSize,
+                size: size, isNew: isNew, within: page))
     }
 
     /// Adds a text box, selected, while its text is being written (see
@@ -242,18 +418,16 @@ final class DocumentSession {
     func beginTextBox(
         pageIndex: Int, bounds: CGRect, fontSize: Double, color: RGBAColor
     ) -> UUID? {
-        guard canEdit else { return nil }
-        let (edit, id) = annotations.beginningTextBox(
-            pageIndex: pageIndex, bounds: bounds, fontSize: fontSize,
-            color: color)
-        apply(edit)
-        selection = id
-        return id
+        begin {
+            $0.beginningTextBox(
+                pageIndex: pageIndex, bounds: bounds, fontSize: fontSize,
+                color: color)
+        }
     }
 
     func finishTextBox(
         _ id: UUID, text: String, fontSize: Double, size: CGSize, isNew: Bool,
-        within page: CGRect? = nil
+        within page: PageFrame? = nil
     ) {
         apply(
             annotations.finishingTextBox(
@@ -261,8 +435,9 @@ final class DocumentSession {
                 within: page))
     }
 
-    func resizeTextBox(_ id: UUID, to size: CGSize, within page: CGRect? = nil)
-    {
+    func resizeTextBox(
+        _ id: UUID, to size: CGSize, within page: PageFrame? = nil
+    ) {
         apply(annotations.resizingTextBox(id, to: size, within: page))
     }
 
@@ -278,302 +453,13 @@ final class DocumentSession {
         apply(annotations.deletingItem(itemID))
     }
 
-    // MARK: Export
-
-    var quickExportURL: URL? { fileURL.map(PDFExporter.quickExportURL(for:)) }
-
-    func quickExport() async {
-        guard let url = quickExportURL else { return }
-        await export(to: url)
-    }
-
-    /// Saves, then writes a copy of the PDF with the annotations to `url`
-    /// (never the original), and shows a confirmation that goes away by
-    /// itself.
-    func export(to url: URL) async {
-        await flush()
-        do {
-            try PDFExporter.export(
-                original: data, annotations: annotations, to: url,
-                originalURL: fileURL)
-            let id = UUID()
-            notice = .exported(url, annotationCount: annotations.count, id: id)
-            try? await Task.sleep(for: .seconds(8))
-            if case .exported(_, _, id)? = notice { notice = nil }
-        } catch {
-            notice = .error(
-                """
-                Couldn't export “\(url.lastPathComponent)”: \
-                \(error.localizedDescription)
-                """
-            )
-        }
-    }
-
-    // MARK: Pages
-
-    /// The PDF and its annotations at one point, before or after a page
-    /// change.
-    private struct PagesState: Sendable {
-        let data: Data
-        let hash: String
-        let pageIDs: [UUID]
-        let annotations: [Annotation]
-    }
-
-    private enum PageChangeError: LocalizedError {
-        case annotationsNotSaved
-        case outOfStep
-        case damagedPageOrder
-
-        var errorDescription: String? {
-            switch self {
-            case .annotationsNotSaved:
-                "The annotations couldn't be saved first."
-            case .outOfStep: "An earlier page change didn't go through."
-            case .damagedPageOrder:
-                "The copy kept of those pages can't be read."
-            }
-        }
-    }
-
-    var canCopyPages: Bool {
-        phase == .ready && !isChangingPages
-            && pdf.map(PageAssembler.canCopyPages) == true
-    }
-
-    /// Changing pages rewrites the PDF file itself.
-    var canChangePages: Bool {
-        canEdit && fileURL != nil
-            && pdf.map(PageAssembler.canChangePages) == true
-    }
-
-    /// `pages`, in that order, with their annotations.
-    func copyPages(_ pages: [Int]) async -> CopiedPages? {
-        guard canCopyPages, !pages.isEmpty else { return nil }
-        let data = data
-        do {
-            let pdf = try await Task.detached(priority: .userInitiated) {
-                try PageAssembler.extract(pages, from: data)
-            }.value
-            return CopiedPages(
-                pdf: pdf, pageCount: pages.count,
-                annotations: annotations.onPages(pages))
-        } catch {
-            notice = .error(
-                "Couldn't copy the pages: \(error.localizedDescription)")
-            return nil
-        }
-    }
-
-    /// Moves, deletes or pastes pages, taking their annotations along, and
-    /// writes the PDF. Undoable.
-    @discardableResult
-    func changePages(
-        _ arrangement: PageArrangement, pasting copied: CopiedPages? = nil,
-        actionName: String
-    ) async -> Bool {
-        guard let set = annotationSet, !arrangement.pages.isEmpty,
-            !arrangement.changesNothing(pageCount: set.pageCount)
-        else { return false }
-        return await runPageChange(
-            actionName,
-            newIndices: arrangement.newIndices(pageCount: set.pageCount)
-        ) { current in
-            let data = try PageAssembler.arrange(
-                current.data, as: arrangement, pasted: copied?.pdf)
-            return PagesState(
-                data: PDFFileWriter.mappedCopy(of: data),
-                hash: sha256Hex(data),
-                pageIDs: arrangement.pageIDs(from: current.pageIDs),
-                annotations: current.annotations.arranged(
-                    for: arrangement, pasted: copied?.annotations ?? []))
-        }
-    }
-
-    /// Goes back to an earlier page order, from the version history, keeping
-    /// today's annotations: they follow their pages, and a page deleted since
-    /// comes back with `earlier`, the annotations it had. Undoable.
-    @discardableResult
-    func restorePages(
-        _ order: AnnotationStore.PageOrder, earlier: [Annotation]
-    ) async -> Bool {
-        guard let url = order.pdfURL, let currentIDs = pageIdentity?.pageIDs
-        else { return false }
-        let pages = order.identity.pageIDs
-        return await runPageChange(
-            "Restore Pages",
-            newIndices: currentIDs.map { pages.firstIndex(of: $0) }
-        ) { current in
-            let data = try Data(contentsOf: url, options: .alwaysMapped)
-            guard sha256Hex(data) == order.documentHash,
-                PDFDocument(data: data)?.pageCount == pages.count
-            else { throw PageChangeError.damagedPageOrder }
-            return PagesState(
-                data: data, hash: order.documentHash, pageIDs: pages,
-                annotations: current.annotations.restoringPages(
-                    pages, from: current.pageIDs, earlier: earlier))
-        }
-    }
-
-    /// Works out the new PDF and annotations from the current ones, off the
-    /// main thread, writes them, and registers the undo.
-    private func runPageChange(
-        _ actionName: String, newIndices: [Int?],
-        target makeTarget:
-            @escaping @Sendable (PagesState) throws ->
-            PagesState
-    ) async -> Bool {
-        guard canChangePages, let set = annotationSet,
-            let identity = pageIdentity
-        else { return false }
-        let current = PagesState(
-            data: data, hash: set.documentHash, pageIDs: identity.pageIDs,
-            annotations: set.annotations)
-        return await queuePageChange {
-            let target = try await Task.detached(priority: .userInitiated) {
-                try makeTarget(current)
-            }.value
-            try await self.switchPages(
-                from: current, to: target, newIndices: newIndices)
-            self.registerPageUndo(
-                back: current, from: target,
-                newIndices: PageArrangement.inverse(
-                    of: newIndices, count: target.pageIDs.count),
-                actionName: actionName)
-        }.value
-    }
-
-    /// Page changes run one after another, undone ones included, and nothing
-    /// else can change meanwhile. A failure is shown, and the task returns
-    /// false.
-    private func queuePageChange(
-        _ change: @escaping @MainActor () async throws -> Void
-    ) -> Task<Bool, Never> {
-        let earlier = pageTask
-        isChangingPages = true
-        let task = Task {
-            _ = await earlier?.value
-            isChangingPages = true
-            defer { isChangingPages = false }
-            do {
-                try await change()
-                return true
-            } catch {
-                showPageChangeError(error)
-                return false
-            }
-        }
-        pageTask = task
-        return task
-    }
-
-    /// Lets a page change being written finish, so closing the window or
-    /// quitting doesn't cut it short.
-    func finishPageChanges() async {
-        while isChangingPages, let pageTask { _ = await pageTask.value }
-    }
-
-    /// Undoing goes back to `previous`. The redo is registered as soon as the
-    /// undo starts, as the undo manager expects; if the undo then fails, the
-    /// undo history is cleared rather than left out of step.
-    private func registerPageUndo(
-        back previous: PagesState, from current: PagesState,
-        newIndices: [Int?], actionName: String
-    ) {
-        guard let undoManager = undoManagerProvider?() else { return }
-        undoManager.registerUndo(withTarget: self) { session in
-            MainActor.assumeIsolated {
-                session.registerPageUndo(
-                    back: current, from: previous,
-                    newIndices: PageArrangement.inverse(
-                        of: newIndices, count: current.pageIDs.count),
-                    actionName: actionName)
-                _ = session.queuePageChange {
-                    do {
-                        try await session.switchPages(
-                            from: current, to: previous,
-                            newIndices: newIndices)
-                    } catch {
-                        session.undoManagerProvider?()?.removeAllActions(
-                            withTarget: session)
-                        throw error
-                    }
-                }
-            }
-        }
-        undoManager.setActionName(actionName)
-    }
-
-    /// Replaces `current` with `target`: first the annotations, under the new
-    /// PDF's hash, then the PDF file. A crash in between leaves the old PDF,
-    /// whose annotations are still stored under its own hash.
-    private func switchPages(
-        from current: PagesState, to target: PagesState, newIndices: [Int?]
-    ) async throws {
-        await flush()
-        guard !autosaver.hasUnsavedChanges else {
-            throw PageChangeError.annotationsNotSaved
-        }
-        guard var set = annotationSet, set.documentHash == current.hash,
-            let openedURL = fileURL, let documentID = pageIdentity?.documentID
-        else { throw PageChangeError.outOfStep }
-        let document = fileDocumentProvider?()
-        // The document follows the file if it's moved while open.
-        let url = document?.fileURL ?? openedURL
-        try await Task.detached(priority: .userInitiated) {
-            try PDFFileWriter.checkUnchanged(url, hash: current.hash)
-        }.value
-        // The pages being left are kept, for the version history.
-        set = try await Persistence.store.leavePages(
-            set,
-            identity: PageIdentity(
-                documentID: documentID, pageIDs: current.pageIDs),
-            pdf: current.data)
-        let identity = PageIdentity(
-            documentID: documentID, pageIDs: target.pageIDs)
-        try await Persistence.store.savePageIdentity(
-            identity, documentHash: target.hash)
-
-        set.documentHash = target.hash
-        set.pageCount = target.pageIDs.count
-        set.annotations = target.annotations
-        let saved = try await Persistence.store.saveAfterPageChange(set)
-        let presenter = PDFFileWriter.Presenter(document)
-        try await Task.detached(priority: .userInitiated) {
-            try PDFFileWriter.replace(url, with: target.data, by: presenter)
-        }.value
-        document?.fileModificationDate =
-            try? url.resourceValues(forKeys: [.contentModificationDateKey])
-            .contentModificationDate
-
-        data = target.data
-        pdf = PDFDocument(data: target.data)
-        pageIdentity = identity
-        relinkCandidates.removeAll()
-        if case .relinkSuggested? = notice { notice = nil }
-        onPagesChanged?(newIndices)
-        annotationSet = saved
-        if let selection,
-            !saved.annotations.contains(where: { $0.itemID == selection })
-        {
-            self.selection = nil
-        }
-    }
-
-    private func showPageChangeError(_ error: any Error) {
-        notice = .error(
-            """
-            The pages of “\(fileName)” weren't changed. \
-            \(error.localizedDescription)
-            """
-        )
-    }
-
     /// Puts back an earlier version's annotations; undoable, and saved as a
     /// new version.
     func restore(_ version: [Annotation]) {
-        apply(annotations.restoringVersion(version))
+        guard let pdf else { return }
+        apply(
+            annotations.restoringVersion(
+                SidewaysBoxes.corrected(version, in: pdf)))
     }
 
     /// The one way annotations change: registers the undo (whose redo comes
@@ -592,6 +478,10 @@ final class DocumentSession {
         set.annotations = edit.annotations
         set.revision += 1
         annotationSet = set
+        switch notice {
+        case .relinkSuggested?, .relinked?: notice = nil
+        default: break
+        }
         if let undoTo, let undoManager = undoManagerProvider?() {
             undoManager.registerUndo(withTarget: self) { session in
                 MainActor.assumeIsolated {
@@ -602,42 +492,114 @@ final class DocumentSession {
             }
             undoManager.setActionName(edit.actionName)
         }
-        if let selection,
-            !edit.annotations.contains(where: { $0.itemID == selection })
-        {
-            self.selection = nil
-        }
         autosaver.changed(set)
     }
 
-    private func findRelinkCandidates(for blank: AnnotationSet) async {
-        let others = await Persistence.store.storedSets().filter {
-            $0.documentHash != blank.documentHash
+    // MARK: Export
+
+    var quickExportURL: URL? {
+        currentFileURL.map(PDFExporter.quickExportURL(for:))
+    }
+
+    func quickExport() async {
+        guard let url = quickExportURL else { return }
+        await export(to: url)
+    }
+
+    /// Exports run one after another, and are off the main thread, so closing
+    /// the window or quitting waits for them (see `finishExports`).
+    func export(to url: URL) async {
+        let earlier = exportTask
+        let task = Task {
+            await earlier?.value
+            await writeCopy(to: url)
         }
-        func isLikelyMatch(_ candidate: AnnotationStore.StoredSetSummary)
-            -> Bool
-        {
-            candidate.fileNameHint == blank.fileNameHint
-                || (!blank.pathHint.isEmpty
-                    && candidate.pathHint == blank.pathHint)
-        }
-        relinkCandidates =
-            others.filter(isLikelyMatch) + others.filter { !isLikelyMatch($0) }
-        if let best = relinkCandidates.first, isLikelyMatch(best),
-            best.annotationCount > 0
-        {
-            notice = .relinkSuggested(best)
+        exportTask = task
+        await task.value
+    }
+
+    func finishExports() async {
+        await exportTask?.value
+    }
+
+    /// Saves, then writes a copy of the PDF with the annotations to `url`
+    /// (never the original), and shows a confirmation that goes away by
+    /// itself.
+    private func writeCopy(to url: URL) async {
+        await flush()
+        let annotations = annotations
+        notice = .exporting(url)
+        do {
+            try await PDFExporter.export(
+                original: data, annotations: annotations, to: url,
+                originalURL: currentFileURL)
+            let id = UUID()
+            notice = .exported(url, annotationCount: annotations.count, id: id)
+            Task { [weak self] in
+                try? await Task.sleep(for: .seconds(8))
+                if case .exported(_, _, id)? = self?.notice {
+                    self?.notice = nil
+                }
+            }
+        } catch {
+            notice = .error(
+                """
+                Couldn't export “\(url.lastPathComponent)”: \
+                \(error.localizedDescription)
+                """
+            )
         }
     }
 
-    /// The path is only a hint, refreshed on load; it's written with the next
-    /// real change.
-    private func withCurrentLocation(
-        _ loaded: AnnotationSet, from blank: AnnotationSet
-    ) -> AnnotationSet {
-        var set = loaded
-        set.fileNameHint = blank.fileNameHint
-        set.pathHint = blank.pathHint
-        return set
+    // MARK: Pages
+
+    /// Page changes run one after another, undone ones included, and nothing
+    /// else can change meanwhile. A failure is shown, and the task returns
+    /// false.
+    func queuePageChange(
+        _ change: @escaping @MainActor () async throws -> Void
+    ) -> Task<Bool, Never> {
+        let earlier = pageTask
+        isChangingPages = true
+        let task = Task {
+            _ = await earlier?.value
+            isChangingPages = true
+            defer { isChangingPages = false }
+            do {
+                try await change()
+                return true
+            } catch {
+                notice = .error(
+                    """
+                    The pages of “\(fileName)” weren't changed. \
+                    \(error.localizedDescription)
+                    """
+                )
+                return false
+            }
+        }
+        pageTask = task
+        return task
+    }
+
+    /// Lets a page change being written finish, so closing the window or
+    /// quitting doesn't cut it short.
+    func finishPageChanges() async {
+        while isChangingPages, let pageTask { _ = await pageTask.value }
+    }
+
+    /// A page change has been written: shows the new pages, and then the
+    /// annotations that go with them.
+    func showPages(
+        _ data: Data, identity: PageIdentity, annotations: AnnotationSet,
+        newIndices: [Int?]
+    ) {
+        self.data = data
+        pdf = PDFDocument(data: data)
+        pageIdentity = identity
+        if case .relinkSuggested? = notice { notice = nil }
+        onPagesChanged?(newIndices)
+        annotationSet = annotations
+        OpenDocuments.shared.pagesChanged(in: self)
     }
 }

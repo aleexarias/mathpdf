@@ -15,11 +15,11 @@ pull request.
 
 - **Highlight and underline** text, in several colours.
 - **Notes** attached to the text you select.
-- **LaTeX formulas** typeset right on the page. Type `\frac{a}{b}`,
-  `\sum_{n=1}^\infty`, `\begin{pmatrix}…\end{pmatrix}` and so on; drag a
-  formula to move it.
-- **Text boxes**: drag to move one, and drag its right edge to set how wide its
-  lines wrap.
+- **LaTeX formulas** typeset right on the page. Press LaTeX (⌃⌘L) to add one in
+  the middle of the view, type `\frac{a}{b}`, `\sum_{n=1}^\infty`,
+  `\begin{pmatrix}…\end{pmatrix}` and so on, and drag it where you want it.
+- **Text boxes**: press Text (⌃⌘T) to add one in the middle of the view. Drag
+  to move it, and drag its right edge to set how wide its lines wrap.
 - **Pages**: drag thumbnails in the sidebar to reorder pages, or onto another
   open PDF's sidebar to copy them there. Cut, copy, paste and delete work
   too, on one page or several (⌘- or ⇧-click), and annotations go with their
@@ -47,8 +47,18 @@ Annotations are stored separately from the PDF, in
   for 7 days, one per day for 30 days. The first version is always kept, plus
   at least 4 others. A document whose pages changed counts as one, with all
   its page orders together.
-- If a PDF is changed by another app, it counts as a new PDF. File → Relink
-  Annotations… copies the old annotations onto it.
+- Annotations belong to a PDF's contents, so identical files share them. If
+  two are open at once, the first opened is where they're changed, and the
+  other shows them until that window closes.
+- PDFs that are password-protected can be annotated once unlocked, but they
+  can't be exported and their pages can't change. Those whose security settings
+  forbid comments can't be annotated at all, since PDFKit won't draw on them.
+- If a PDF is changed by another app, it counts as a new PDF. A window that has
+  it open says so and keeps what it opened. File → Relink Annotations… copies
+  the old annotations onto the new one, while it has none of its own. They go
+  by page number, so check them if pages were added or removed. Any that don't
+  fit on its pages are left out and you're told how many. You can undo it, and
+  the old annotations stay as they were.
 - Moving, deleting and pasting pages is the one thing that changes the PDF
   itself. It's written straight away and can be undone while the PDF is open.
   Each page order it leaves behind is kept in the data folder, so File →
@@ -72,14 +82,43 @@ mathpdf adds common commands SwiftMath lacks, such as `\dfrac`,
 A formula is checked when you finish it (Esc, ⌘↩ or clicking away). If
 something is wrong you're told what it is, for example `Command not supported:
 \boxed`. If you finish again without changing anything, a new formula is
-removed and an edited one goes back to how it was.
+removed and an edited one goes back to how it was. Starting a new formula or
+text box leaves the one you were writing as it is if it's valid. If it's empty
+or has an error, a new one is removed and an edited one goes back to how it
+was, without asking.
+
+Your own commands go in **Annotate > LaTeX Commands…** (also Settings, ⌘,),
+written as in a preamble, and work in every PDF once saved:
+
+```latex
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\norm}[1]{\left\|#1\right\|}
+\DeclareMathOperator{\Var}{Var}
+```
+
+`\newcommand`, `\renewcommand`, `\providecommand`, `\DeclareMathOperator` and
+`\def` are understood, with arguments and defaults. Nothing is checked as you
+type: **Save** (⌘S) checks the file and lists anything wrong in red, by line,
+and nothing is saved until it's all resolved. Save is greyed out while the file
+is saved. The rest of the app waits until you close the window, with Close, ⌘W
+or its close button. Closing or quitting with unsaved changes asks what to do
+with them.
+
+A formula is drawn with the commands as they were when you entered it, so
+changing or deleting a command never changes formulas you've already written.
+They pick up the current commands when you edit their text.
+
+The commands are stored as plain text in `latex-commands.tex`, in the data
+folder, so you can back them up or edit them in another editor. Edits made
+there apply when you come back to mathpdf.
 
 ## Keyboard shortcuts
 
 | Action | Keys |
 |---|---|
 | Highlighter, Underliner | ⌃⌘H, ⌃⌘U |
-| Note, LaTeX and Text tools | ⌃⌘N, ⌃⌘L, ⌃⌘T |
+| Note tool | ⌃⌘N |
+| New formula, new text box | ⌃⌘L, ⌃⌘T |
 | Leave the current tool | Esc |
 | Finish editing a note, formula or text box | ⌘↩ or Esc |
 | Delete the selected annotation | Delete |
@@ -88,6 +127,9 @@ removed and an edited one goes back to how it was.
 | Paste pages after the page you're on | ⌘V |
 | Undo, Redo | ⌘Z, ⇧⌘Z (also ⌃Z, ⌘Y, ⌃Y) |
 | Save now | ⌘S |
+| Close the PDF | ⌘W |
+| Your LaTeX commands | ⌘, |
+| Save or close your LaTeX commands, in their window | ⌘S, ⌘W |
 | Export…, Quick Export | ⇧⌘E, ⌥⇧⌘E |
 | Find, Find Next, Find Previous | ⌘F, ⌘G, ⇧⌘G |
 | Zoom In, Zoom Out, Actual Size, Zoom to Fit | ⌘+, ⌘−, ⌘0, ⌘9 |
@@ -129,7 +171,7 @@ another Mac, build it there.
 | `make lint`, `make format` | Checks or applies `.swift-format` |
 | `make icon` | Redraws the app icon from `scripts/AppIcon.swift` |
 | `make project` | Generates `mathpdf.xcodeproj`, for working in Xcode |
-| `make clean` | Removes build output and the generated project |
+| `make clean` | Removes build output and everything generated |
 
 The development copy and the installed one share the same annotations, so only
 one should be open at a time. `make run` won't start while the installed copy
@@ -142,7 +184,8 @@ is open, and `make install` won't replace it while it's running.
 - `Packages/MathPDFCore/Sources/`, in three modules:
   - `MathPDFCore`: annotation model, crash-safe store, autosave, version
     retention, edit rules, page rearranging.
-  - `MathPDFLaTeX`: LaTeX typesetting and the compatibility layer.
+  - `MathPDFLaTeX`: LaTeX typesetting, the compatibility layer and expanding
+    your own commands.
   - `MathPDFRendering`: drawing annotations as PDF annotations, export, and
     writing PDFs whose pages changed.
 - `Packages/MathPDFCore/Tests/`: unit tests, including fixtures for every past
@@ -152,4 +195,8 @@ is open, and `make install` won't replace it while it's running.
 ## License
 
 mathpdf is released under the [MIT License](LICENSE). It uses
-[SwiftMath](https://github.com/mgriebling/SwiftMath), also MIT-licensed.
+[SwiftMath](https://github.com/mgriebling/SwiftMath), also MIT-licensed, and
+the AMS font from [KaTeX](https://katex.org), under the [SIL Open Font
+License][ofl].
+
+[ofl]: Packages/MathPDFCore/Sources/MathPDFLaTeX/Resources/OFL.txt

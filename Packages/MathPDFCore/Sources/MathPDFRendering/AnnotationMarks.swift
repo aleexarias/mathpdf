@@ -9,64 +9,63 @@ import PDFKit
 public enum AnnotationMarks {
     /// What's drawn for one annotation, and the colour each mark is normally
     /// drawn in.
-    public static func marks(for annotation: Annotation) -> [(
-        mark: PDFAnnotation, color: NSColor
-    )] {
+    public static func marks(
+        for annotation: Annotation, pageRotation: Int = 0
+    ) -> [(mark: PDFAnnotation, color: NSColor)] {
         let color = annotation.color.nsColor
+        func line(
+            _ type: PDFAnnotationSubtype, _ rect: CGRect, _ color: NSColor
+        ) -> (mark: PDFAnnotation, color: NSColor) {
+            (markup(type, [rect], color, pageRotation: pageRotation), color)
+        }
         switch annotation.kind {
         case .underline:
-            return [(markup(.underline, [annotation.bounds], color), color)]
+            return [line(.underline, annotation.bounds, color)]
         case .highlight:
-            return [(markup(.highlight, [annotation.bounds], color), color)]
+            return [line(.highlight, annotation.bounds, color)]
         case let .note(text, anchors):
             let underline = anchorColor(for: color)
-            return anchors.map {
-                (markup(.underline, [$0], underline), underline)
-            } + [
-                (noteIcon(annotation, text: text, color: color), color)
-            ]
-        case let .latex(source, fontSize):
-            return [
-                (
-                    LaTeXAnnotation(
-                        bounds: annotation.bounds, source: source,
-                        fontSize: fontSize, color: color), color
-                )
-            ]
+            return anchors.map { line(.underline, $0, underline) }
+                + [(noteIcon(annotation, text: text, color: color), color)]
+        case let .latex(source, fontSize, expanded):
+            let formula = LaTeXAnnotation(
+                bounds: annotation.bounds, source: source, expanded: expanded,
+                fontSize: fontSize, color: color, pageRotation: pageRotation)
+            return [(formula, color)]
         case let .textBox(text, fontSize):
-            return [
-                (
-                    textBox(
-                        annotation, text: text, fontSize: fontSize,
-                        color: color), .clear
-                )
-            ]
+            let box = textBox(
+                annotation, text: text, fontSize: fontSize, color: color)
+            return [(box, .clear)]
         }
     }
 
     /// A highlight or underline over one or more lines, as one annotation (one
     /// quadrilateral per line), the way PDF editors make a multi-line
-    /// highlight.
-    public static func markup(
-        _ type: PDFAnnotationSubtype, _ lines: [CGRect], _ color: NSColor
+    /// highlight. The corners go in the order they have on screen, which is
+    /// what puts an underline under the text on a rotated page.
+    static func markup(
+        _ type: PDFAnnotationSubtype, _ lines: [CGRect], _ color: NSColor,
+        pageRotation: Int = 0
     ) -> PDFAnnotation {
+        let frame = PageFrame(box: .zero, rotation: pageRotation)
         let bounds = lines.reduce(CGRect.null) { $0.union($1) }
         let mark = PDFAnnotation(
             bounds: bounds, forType: type, withProperties: nil)
         mark.color = color
         // Relative to the bounds' origin, so moving the bounds moves the mark.
         mark.quadrilateralPoints = lines.flatMap { line -> [NSValue] in
-            let r = line.offsetBy(dx: -bounds.minX, dy: -bounds.minY)
+            let corners = frame.shownCorners(
+                of: line.offsetBy(dx: -bounds.minX, dy: -bounds.minY))
             return [
-                NSPoint(x: r.minX, y: r.maxY), NSPoint(x: r.maxX, y: r.maxY),
-                NSPoint(x: r.minX, y: r.minY), NSPoint(x: r.maxX, y: r.minY),
+                corners.topLeft, corners.topRight, corners.bottomLeft,
+                corners.bottomRight,
             ]
             .map { NSValue(point: $0) }
         }
         return mark
     }
 
-    public static func noteIcon(
+    static func noteIcon(
         _ annotation: Annotation, text: String, color: NSColor
     ) -> PDFAnnotation {
         let icon = PDFAnnotation(
@@ -80,7 +79,7 @@ public enum AnnotationMarks {
     /// A text box: a standard PDF FreeText annotation, so other apps can edit
     /// its text. Its colour is the text's; the box itself is clear (it's
     /// tinted while selected).
-    public static func textBox(
+    static func textBox(
         _ annotation: Annotation, text: String, fontSize: Double,
         color: NSColor
     ) -> PDFAnnotation {
@@ -100,7 +99,7 @@ public enum AnnotationMarks {
     /// The subtle underline under a note's text: the note's colour, a little
     /// deeper, since a pale note colour would be nearly invisible as a thin
     /// line.
-    public static func anchorColor(for color: NSColor) -> NSColor {
+    static func anchorColor(for color: NSColor) -> NSColor {
         guard let rgb = color.usingColorSpace(.sRGB) else { return color }
         return NSColor(
             hue: rgb.hueComponent,

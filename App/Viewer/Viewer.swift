@@ -44,6 +44,9 @@ final class Viewer: NSObject {
         NotificationCenter.default.addObserver(
             self, selector: #selector(pageChanged), name: .PDFViewPageChanged,
             object: pdfView)
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(documentUnlocked),
+            name: .PDFDocumentDidUnlock, object: document)
         pdfView.viewer = self
         session.onPagesChanged = { [weak self] in
             self?.showChangedPages(newIndices: $0)
@@ -63,6 +66,12 @@ final class Viewer: NSObject {
     static let pageBackground = NSColor(name: "PageBackground") { appearance in
         appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
             ? NSColor(white: 0.27, alpha: 1) : NSColor(white: 0.86, alpha: 1)
+    }
+
+    @objc private func documentUnlocked() {
+        session.readProtection()
+        editor.redrawAnnotations()
+        sidebar.reload()
     }
 
     @objc private func pageChanged() {

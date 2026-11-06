@@ -12,14 +12,10 @@ import SwiftMath
 ///   supported.
 @MainActor
 enum LaTeXCompatibility {
-    struct Problem: Error, Equatable {
-        let message: String
-    }
-
-    static func rewrite(_ source: String) throws(Problem) -> String {
+    static func rewrite(_ source: String) throws(LaTeXProblem) -> String {
         _ = symbolsAdded
-        var reader = Reader(source)
-        return try reader.rewriteAll()
+        var rewriter = Rewriter(source)
+        return try rewriter.rewriteAll()
     }
 
     // MARK: Rewriting
@@ -69,11 +65,6 @@ enum LaTeXCompatibility {
         "equation*": "",
     ]
 
-    /// Commands whose argument is text, left exactly as typed.
-    private static let textCommands: Set<String> = [
-        "text", "textrm", "textbf", "textit", "textsf", "texttt", "mbox",
-    ]
-
     /// The basic colours of LaTeX's xcolor package. SwiftMath only reads hex.
     private static let colors: [String: String] = [
         "black": "#000000", "white": "#FFFFFF", "red": "#FF0000",
@@ -87,55 +78,55 @@ enum LaTeXCompatibility {
         "teal": "#008080", "violet": "#800080",
     ]
 
-    /// Walks the source one token at a time, copying it out and rewriting what
-    /// needs it.
+    /// Copies the source out one token at a time, rewriting what needs it.
     @MainActor
-    private struct Reader {
-        private let text: [Character]
-        private var index = 0
+    private struct Rewriter {
+        private var reader: LaTeXReader
 
         init(_ source: String) {
-            text = Array(source)
+            reader = LaTeXReader(source)
         }
 
-        mutating func rewriteAll() throws(Problem) -> String {
-            var out = ""
-            while index < text.count {
-                guard text[index] == "\\" else {
-                    out.append(text[index])
-                    index += 1
-                    continue
-                }
-                let name = readCommandName()
+        mutating func rewriteAll() throws(LaTeXProblem) -> String {
+            var out = reader.readText()
+            while !reader.isAtEnd {
+                let name = reader.readCommandName()
                 out += try rewrite(command: name)
+                out += reader.readText()
             }
             return out
         }
 
-        private mutating func rewrite(command name: String) throws(Problem)
+        private mutating func rewrite(command name: String)
+            throws(LaTeXProblem)
             -> String
         {
             if let replacement = renamed[name] { return replacement }
             if sizeCommands.contains(name) { return "" }
             switch name {
             case "operatorname":
-                let limits = readStar()
-                return operatorCommand(
-                    named: operatorName(try readArgument(of: name)),
-                    limits: limits)
+                let limits = reader.readStar()
+                let operatorName = operatorName(
+                    try reader.readArgument(of: name))
+                // SwiftMath crashes laying out an operator with no name
+                guard !operatorName.isEmpty else {
+                    throw LaTeXProblem(
+                        message: #"\operatorname needs a name."#)
+                }
+                return operatorCommand(named: operatorName, limits: limits)
             case "overset", "stackrel":
-                let above = try readArgument(of: name)
+                let above = try reader.readArgument(of: name)
                 return try limitsOperator(
-                    over: readArgument(of: name), command: name)
+                    over: reader.readArgument(of: name), command: name)
                     + "^{\(try LaTeXCompatibility.rewrite(above))}"
             case "underset":
-                let below = try readArgument(of: name)
+                let below = try reader.readArgument(of: name)
                 return try limitsOperator(
-                    over: readArgument(of: name), command: name)
+                    over: reader.readArgument(of: name), command: name)
                     + "_{\(try LaTeXCompatibility.rewrite(below))}"
             case "xrightarrow", "xleftarrow":
-                let below = try readOptionalArgument()
-                let above = try readArgument(of: name)
+                let below = try reader.readOptionalArgument()
+                let above = try reader.readArgument(of: name)
                 var out = operatorCommand(
                     named: name == "xrightarrow" ? "\u{2192}" : "\u{2190}",
                     limits: true)
@@ -146,43 +137,45 @@ enum LaTeXCompatibility {
                 return out
             case "pmod":
                 return #"\quad(\mathrm{mod}\;"#
-                    + (try LaTeXCompatibility.rewrite(readArgument(of: name)))
+                    + (try LaTeXCompatibility.rewrite(
+                        reader.readArgument(of: name)))
                     + ")"
             case "mod":
                 return #"\quad\mathrm{mod}\;"#
-                    + (try LaTeXCompatibility.rewrite(readArgument(of: name)))
+                    + (try LaTeXCompatibility.rewrite(
+                        reader.readArgument(of: name)))
             case "substack":  // rows in script size, as under a sum
                 let rows = try LaTeXCompatibility.rewrite(
-                    readArgument(of: name))
+                    reader.readArgument(of: name))
                 return #"\begin{matrix}\scriptstyle "#
                     + rows.replacingOccurrences(
                         of: #"\\"#, with: #"\\\scriptstyle "#)
                     + #"\end{matrix}"#
             case "tag":
-                let starred = readStar()
-                let label = try readArgument(of: name)
+                let starred = reader.readStar()
+                let label = try reader.readArgument(of: name)
                 return starred
                     ? #"\qquad\text{\#(label)}"# : #"\qquad\text{(\#(label))}"#
             case "label":
-                _ = try readArgument(of: name)
+                _ = try reader.readArgument(of: name)
                 return ""
             case "color", "textcolor":
-                let color = try readArgument(of: name)
+                let color = try reader.readArgument(of: name)
                 let trimmed = color.trimmingCharacters(in: .whitespaces)
                 return "\\\(name){\(colors[trimmed] ?? color)}"
             case "not":
                 return try negation()
             case "begin", "end":
-                let environment = try readArgument(of: name)
+                let environment = try reader.readArgument(of: name)
                 guard let replacement = environments[environment] else {
                     return "\\\(name){\(environment)}"
                 }
                 if name == "begin", environment == "array" {
-                    _ = try readArgument(of: #"\begin{array}"#)
+                    _ = try reader.readArgument(of: #"\begin{array}"#)
                 }  // column spec
                 return replacement.isEmpty ? "" : "\\\(name){\(replacement)}"
-            case _ where textCommands.contains(name):
-                guard let argument = try readGroup() else {
+            case _ where LaTeXReader.textCommands.contains(name):
+                guard let argument = try reader.readGroup() else {
                     return "\\" + name
                 }
                 return "\\\(name){\(argument)}"
@@ -192,113 +185,25 @@ enum LaTeXCompatibility {
         }
 
         /// `\not=`, `\not\in`, …: the negated symbol, if there is one.
-        private mutating func negation() throws(Problem) -> String {
-            skipSpaces()
-            guard index < text.count else {
-                throw Problem(message: #"\not needs a symbol after it."#)
+        private mutating func negation() throws(LaTeXProblem) -> String {
+            reader.skipSpaces()
+            guard let next = reader.next else {
+                throw LaTeXProblem(message: #"\not needs a symbol after it."#)
             }
             let symbol: String
-            if text[index] == "\\" {
-                symbol = readCommandName()
+            if next == "\\" {
+                symbol = reader.readCommandName()
             } else {
-                symbol = String(text[index])
-                index += 1
+                symbol = String(next)
+                reader.skipCharacter()
             }
             guard let negated = negations[symbol] else {
                 let written =
                     symbol.first?.isLetter == true ? "\\" + symbol : symbol
-                throw Problem(
+                throw LaTeXProblem(
                     message: #"Command not supported: \not"# + written)
             }
             return negated
-        }
-
-        // MARK: Reading
-
-        /// After the backslash: a name of letters, or a single other character
-        /// (`\,`, `\{`, `\\`).
-        private mutating func readCommandName() -> String {
-            index += 1
-            guard index < text.count else { return "" }
-            let start = index
-            if text[index].isASCIILetter {
-                while index < text.count, text[index].isASCIILetter {
-                    index += 1
-                }
-            } else {
-                index += 1
-            }
-            return String(text[start..<index])
-        }
-
-        private mutating func readStar() -> Bool {
-            guard index < text.count, text[index] == "*" else { return false }
-            index += 1
-            return true
-        }
-
-        private mutating func skipSpaces() {
-            while index < text.count, text[index].isWhitespace { index += 1 }
-        }
-
-        /// A command's argument: a `{group}`, or else one token, as TeX allows
-        /// (`\dfrac12`).
-        private mutating func readArgument(of command: String) throws(Problem)
-            -> String
-        {
-            if let group = try readGroup() { return group }
-            guard index < text.count, text[index] != "}" else {
-                throw Problem(
-                    message: command.hasPrefix("\\")
-                        ? "\(command) needs an argument."
-                        : "\\\(command) needs an argument.")
-            }
-            if text[index] == "\\" {
-                let start = index
-                _ = readCommandName()
-                return String(text[start..<index])
-            }
-            index += 1
-            return String(text[index - 1])
-        }
-
-        /// The contents of a `{group}` if one comes next, with nested groups
-        /// and escaped braces.
-        private mutating func readGroup() throws(Problem) -> String? {
-            skipSpaces()
-            guard index < text.count, text[index] == "{" else { return nil }
-            return try readBalanced(open: "{", close: "}")
-        }
-
-        /// `[contents]`, if they come next.
-        private mutating func readOptionalArgument() throws(Problem) -> String?
-        {
-            skipSpaces()
-            guard index < text.count, text[index] == "[" else { return nil }
-            return try readBalanced(open: "[", close: "]")
-        }
-
-        private mutating func readBalanced(open: Character, close: Character)
-            throws(Problem) -> String
-        {
-            index += 1
-            let start = index
-            var depth = 0
-            while index < text.count {
-                switch text[index] {
-                // the escaped character can't open or close anything
-                case "\\": index += 1
-                case "{": depth += 1
-                case "}" where depth > 0: depth -= 1
-                case close where depth == 0:
-                    defer { index += 1 }
-                    return String(text[start..<index])
-                default: break
-                }
-                index += 1
-            }
-            throw Problem(
-                message: close == "}" ? "Missing closing brace" : "Missing ]")
         }
     }
 
@@ -337,7 +242,7 @@ enum LaTeXCompatibility {
     /// An operator to put limits on, for `\overset` and friends. Only a symbol
     /// or a word can go under them: `=`, `\to`, `\arg\min`.
     private static func limitsOperator(over base: String, command: String)
-        throws(Problem) -> String
+        throws(LaTeXProblem) -> String
     {
         let simple: Set<MTMathAtomType> = [
             .ordinary, .number, .variable, .largeOperator, .binaryOperator,
@@ -351,7 +256,7 @@ enum LaTeXCompatibility {
                     && $0.superScript == nil && !$0.nucleus.isEmpty
             })
         else {
-            throw Problem(
+            throw LaTeXProblem(
                 message:
                     "\\\(command) only works over a single symbol or word.")
         }
@@ -447,8 +352,4 @@ enum LaTeXCompatibility {
         atom.nucleus = character
         return atom
     }
-}
-
-private extension Character {
-    var isASCIILetter: Bool { isASCII && isLetter }
 }

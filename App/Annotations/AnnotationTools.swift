@@ -36,23 +36,20 @@ struct AnnotationTools: View {
                 attach a note (⌃⌘N)
                 """
             )
-            Toggle(isOn: brush(.latex)) {
-                Label("LaTeX", systemImage: "function")
+            Button("LaTeX", systemImage: "function") { editor.addFormula() }
+                .help(
+                    """
+                    Add a formula in the middle of the view. Double-click a \
+                    formula to edit it (⌃⌘L)
+                    """
+                )
+            Button("Text", systemImage: "character.textbox") {
+                editor.addTextBox()
             }
             .help(
                 """
-                LaTeX tool: while on, click on the page to place a formula. \
-                Double-click a formula to edit it (⌃⌘L)
-                """
-            )
-            Toggle(isOn: brush(.text)) {
-                Label("Text", systemImage: "character.textbox")
-            }
-            .help(
-                """
-                Text tool: while on, click on the page to place a text box. \
-                Double-click a text box to edit it, or drag its right edge \
-                to set its width (⌃⌘T)
+                Add a text box in the middle of the view. Double-click a text \
+                box to edit it, or drag its right edge to set its width (⌃⌘T)
                 """
             )
         }

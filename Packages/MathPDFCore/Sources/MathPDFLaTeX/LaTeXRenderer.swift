@@ -16,7 +16,6 @@ public enum LaTeXRenderer {
     public enum Result {
         case formula(Typeset)
         case empty
-        /// The source can't be typeset; `message` says why.
         case invalid(message: String)
     }
 
@@ -51,6 +50,9 @@ public enum LaTeXRenderer {
     ) -> Result {
         guard !source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         else { return .empty }
+        guard !LaTeXReader.isNestedTooDeeply(source) else {
+            return .invalid(message: "This formula is nested too deeply.")
+        }
         let prepared: String
         do {
             prepared = try LaTeXCompatibility.rewrite(source)
@@ -69,6 +71,14 @@ public enum LaTeXRenderer {
         if let error = label.error {
             return .invalid(message: message(for: error))
         }
+        let hasBlackboardLetters = prepared.contains(#"\mathbb"#)
+        // Changed in place: layout reads the label's list as it is then.
+        if let list = label.mathList {
+            MathListRepairs.apply(to: list)
+            if hasBlackboardLetters {
+                BlackboardLetters.reserveWidths(in: list)
+            }
+        }
         let size = label.fittingSize
         guard size.width > 0, size.height > 0 else {
             return .invalid(message: "This formula has nothing to show.")
@@ -77,6 +87,9 @@ public enum LaTeXRenderer {
         label.layout()
         guard let display = label.displayList else {
             return .invalid(message: "This formula couldn't be laid out.")
+        }
+        if hasBlackboardLetters {
+            BlackboardLetters.useAMSLetters(in: display)
         }
         return .formula(Typeset(display: display, size: size))
     }

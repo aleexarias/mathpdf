@@ -27,8 +27,9 @@ enum PDFFileWriter {
 
     /// Never write over a change another app made.
     static func checkUnchanged(_ url: URL, hash: String) throws {
-        let data = try Data(contentsOf: url, options: .alwaysMapped)
-        guard sha256Hex(data) == hash else { throw Failure.changedElsewhere }
+        guard try sha256Hex(ofFileAt: url) == hash else {
+            throw Failure.changedElsewhere
+        }
     }
 
     /// Replaces the file in one step. The write is coordinated, so iCloud

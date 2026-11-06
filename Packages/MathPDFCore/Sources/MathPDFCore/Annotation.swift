@@ -12,9 +12,11 @@ public struct Annotation: Identifiable, Equatable, Sendable {
         /// selection. Empty means the note is anchored to a point: the origin
         /// of `bounds`.
         case note(text: String, anchorRects: [CGRect])
-        /// The source is the source of truth; rendered output is always
-        /// derived from it.
-        case latex(source: String, fontSize: Double)
+        /// The source is what was typed, and what the editor shows. `expanded`
+        /// is that source with the user's own commands replaced, worked out
+        /// once when it's entered and drawn from then on, so changing a
+        /// command later doesn't alter the formula. Nil if it used none.
+        case latex(source: String, fontSize: Double, expanded: String? = nil)
         /// Plain text placed on the page, drawn in Helvetica at `fontSize`.
         case textBox(text: String, fontSize: Double)
     }
@@ -130,7 +132,8 @@ extension Annotation: Codable {
     private enum CodingKeys: String, CodingKey {
         case id, type, pageIndex, bounds, color, groupID, createdAt, modifiedAt
         case text, anchorRects  // note
-        case source, fontSize  // latex; a text box has `text` and `fontSize`
+        // latex; a text box has text, fontSize
+        case source, fontSize, expanded
     }
 
     public init(from decoder: any Decoder) throws {
@@ -171,7 +174,9 @@ extension Annotation: Codable {
         case "latex":
             kind = .latex(
                 source: try c.decode(String.self, forKey: .source),
-                fontSize: try c.decode(Double.self, forKey: .fontSize))
+                fontSize: try c.decode(Double.self, forKey: .fontSize),
+                expanded: try c.decodeIfPresent(
+                    String.self, forKey: .expanded))
         case let other:
             throw DecodingError.dataCorruptedError(
                 forKey: .type, in: c,
@@ -202,10 +207,11 @@ extension Annotation: Codable {
             try c.encode("textbox", forKey: .type)
             try c.encode(text, forKey: .text)
             try c.encode(fontSize, forKey: .fontSize)
-        case let .latex(source, fontSize):
+        case let .latex(source, fontSize, expanded):
             try c.encode("latex", forKey: .type)
             try c.encode(source, forKey: .source)
             try c.encode(fontSize, forKey: .fontSize)
+            try c.encodeIfPresent(expanded, forKey: .expanded)
         }
     }
 }

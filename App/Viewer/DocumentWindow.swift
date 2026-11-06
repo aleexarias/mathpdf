@@ -38,7 +38,7 @@ struct DocumentWindow: View {
         .onDisappear {
             viewer?.editor.closeEditor()
             viewer?.closeVersions()
-            if let session { SaveCoordinator.shared.windowClosed(session) }
+            if let session { OpenDocuments.shared.windowClosed(session) }
         }
     }
 }

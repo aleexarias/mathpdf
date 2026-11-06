@@ -25,20 +25,13 @@ struct TextBoxEditorView: View {
         VStack(alignment: .leading, spacing: 8) {
             TextEditor(text: $draft.text)
                 .font(.custom("Helvetica", size: 13))
-                .scrollContentBackground(.hidden)
                 .focused($focused)
-                .padding(4)
-                .background(
-                    .background.secondary,
-                    in: RoundedRectangle(cornerRadius: 6)
-                )
+                .writingArea()
                 .frame(width: 320, height: 110)
             HStack {
                 FontSizeStepper(size: $draft.fontSize, range: 6...72)
                 Spacer()
-                Text("Esc/⌘↩ to finish.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                FinishHint()
                 DoneButton(action: done)
             }
         }

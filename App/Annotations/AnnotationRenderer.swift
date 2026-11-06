@@ -60,8 +60,17 @@ final class AnnotationRenderer {
 
     // MARK: Drawing
 
+    /// After a locked PDF is unlocked: nothing could be drawn on it before.
+    func redraw() {
+        render()
+    }
+
     private func render() {
-        guard let document = pdfView.document else { return }
+        // PDFKit refuses these, so nothing would be drawn and `rendered` would
+        // say it was
+        guard let document = pdfView.document, !document.isLocked,
+            document.allowsCommenting
+        else { return }
         var current: [UUID: Annotation] = [:]
         for annotation in session.annotations {
             current[annotation.id] = annotation
@@ -85,7 +94,8 @@ final class AnnotationRenderer {
             guard let page = document.page(at: annotation.pageIndex) else {
                 continue
             }
-            let marks = AnnotationMarks.marks(for: annotation)
+            let marks = AnnotationMarks.marks(
+                for: annotation, pageRotation: page.rotation)
             for (mark, _) in marks { page.addAnnotation(mark) }
             rendered[annotation.id] = Rendered(
                 annotation: annotation, marks: marks)
@@ -161,8 +171,9 @@ final class AnnotationRenderer {
         for underline in selected {
             guard let page = document.page(at: underline.pageIndex),
                 let line = page.selection(
-                    for: underline.bounds.insetBy(
-                        dx: 0, dy: underline.bounds.height * 0.3))
+                    for: pdfView.pageFrame(of: page).middleOfLine(
+                        underline.bounds)
+                )
             else { continue }
             text.add(line)
         }

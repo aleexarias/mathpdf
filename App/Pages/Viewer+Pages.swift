@@ -44,7 +44,6 @@ extension Viewer {
         sidebar.select([min(pages.min() ?? 0, pageCount - 1)])
     }
 
-    /// Puts `pages` before the page now at `destination`.
     func movePages(_ pages: [Int], to destination: Int) async {
         let before = pageCount
         let arrangement = PageArrangement.moving(

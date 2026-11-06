@@ -12,22 +12,17 @@ import PDFKit
 final class AnnotationEditor: NSObject {
     /// Tools stay on until turned off. With the highlighter or underliner on,
     /// selecting text marks it; with the note tool on, selecting text (or
-    /// clicking a word) attaches a note; with the LaTeX or text tool on, a
-    /// click places a formula or a text box there.
+    /// clicking a word) attaches a note.
     enum Tool {
-        case highlight, underline, note, latex, text
+        case highlight, underline, note
 
         var name: String {
             switch self {
             case .highlight: "Highlight"
             case .underline: "Underline"
             case .note: "Note"
-            case .latex: "LaTeX"
-            case .text: "Text"
             }
         }
-
-        var placesByClick: Bool { self == .latex || self == .text }
     }
 
     private(set) var tool: Tool?
@@ -69,7 +64,8 @@ final class AnnotationEditor: NSObject {
     }
 
     /// A text box's width being set by dragging its right edge: the text wraps
-    /// to it, the height follows, and the top-left corner stays put.
+    /// to it, the height follows, and the top-left corner stays put. All as
+    /// seen on screen.
     private struct WidthChange {
         let id: UUID
         let mark: PDFAnnotation
@@ -78,16 +74,19 @@ final class AnnotationEditor: NSObject {
         let fontSize: Double
         /// From the narrowest a box can be to the page's right edge.
         let widths: ClosedRange<CGFloat>
-        let page: CGRect
+        let frame: PageFrame
 
-        func bounds(movedBy dx: CGFloat) -> CGRect {
+        func bounds(movedBy offset: CGSize) -> CGRect {
+            let shown = frame.shown(start)
+            let wanted = shown.width + frame.shown(offset).width
             let width = min(
-                max(start.width + dx, widths.lowerBound), widths.upperBound)
+                max(wanted, widths.lowerBound), widths.upperBound)
             let size = TextBoxStyle.size(
                 of: text, fontSize: fontSize, width: width)
-            return CGRect(
-                x: start.minX, y: start.maxY - size.height, width: size.width,
-                height: size.height)
+            return frame.onPage(
+                CGRect(
+                    x: shown.minX, y: shown.maxY - size.height,
+                    width: size.width, height: size.height))
         }
     }
 
@@ -124,11 +123,14 @@ final class AnnotationEditor: NSObject {
         set { renderer.onPagesRedrawn = newValue }
     }
 
-    /// The PDF view is about to show a new document, after a page change.
     func documentReplaced() {
         gesture = nil
         editOnMouseUp = nil
         renderer.documentReplaced()
+    }
+
+    func redrawAnnotations() {
+        renderer.redraw()
     }
 
     /// While a note or formula is being written the page stays put, so it
@@ -159,7 +161,7 @@ final class AnnotationEditor: NSObject {
         guard session.canEdit else { return NSSound.beep() }
         // a formula with an error is shown first
         guard popover.tryToFinish() else { return }
-        if hasTextSelection, !newTool.placesByClick {
+        if hasTextSelection {
             tool = nil
             // uses the selection before deselecting can clear it
             apply(newTool)
@@ -175,7 +177,6 @@ final class AnnotationEditor: NSObject {
         case .highlight: addMarkup(.highlight, color: highlightColor)
         case .underline: addMarkup(.underline, color: underlineColor)
         case .note: addNoteToSelection()
-        case .latex, .text: break
         }
     }
 
@@ -201,12 +202,6 @@ final class AnnotationEditor: NSObject {
         {
             pdfView.setCurrentSelection(word, animate: false)
         }
-        if tool.placesByClick {
-            if !hasTextSelection, let (page, point) = location {
-                place(tool, on: page, at: point)
-            }
-            return
-        }
         if hasTextSelection { apply(tool) }
     }
 
@@ -220,7 +215,7 @@ final class AnnotationEditor: NSObject {
         switch tool {
         case .highlight: return highlightColor
         case .underline: return underlineColor
-        case .note, .latex, .text, nil: return nil
+        case .note, nil: return nil
         }
     }
 
@@ -234,7 +229,7 @@ final class AnnotationEditor: NSObject {
         switch tool {
         case .highlight: highlightColor = newColor
         case .underline: underlineColor = newColor
-        case .note, .latex, .text, nil: break
+        case .note, nil: break
         }
     }
 
@@ -274,8 +269,7 @@ final class AnnotationEditor: NSObject {
         if let text = textUnder[annotation.id] { return text }
         guard let page = pdfView.document?.page(at: annotation.pageIndex)
         else { return "" }
-        let core = annotation.bounds.insetBy(
-            dx: 0, dy: annotation.bounds.height * 0.3)
+        let core = pdfView.pageFrame(of: page).middleOfLine(annotation.bounds)
         let text =
             page.selection(for: core)?.string?.trimmingCharacters(
                 in: .whitespacesAndNewlines) ?? ""
@@ -314,13 +308,13 @@ final class AnnotationEditor: NSObject {
         let anchors = selection.selectionsByLine().compactMap { line in
             line.pages.first == page ? line.bounds(for: page) : nil
         }
-        let end = lastLine.bounds(for: page)
-        var icon = CGRect(
-            x: end.maxX + 2, y: end.maxY - Self.noteSize, width: Self.noteSize,
-            height: Self.noteSize)
-        let box = page.bounds(for: pdfView.displayBox)
-        icon.origin.x = min(max(icon.minX, box.minX), box.maxX - icon.width)
-        icon.origin.y = min(max(icon.minY, box.minY), box.maxY - icon.height)
+        let frame = pdfView.pageFrame(of: page)
+        let end = frame.shown(lastLine.bounds(for: page))
+        let icon = frame.onPage(
+            frame.keptOnPage(
+                CGRect(
+                    x: end.maxX + 2, y: end.maxY - Self.noteSize,
+                    width: Self.noteSize, height: Self.noteSize)))
         pdfView.clearSelection()
         guard
             let id = session.beginNote(
@@ -331,54 +325,56 @@ final class AnnotationEditor: NSObject {
         popover.editNote(id, isNew: true)
     }
 
-    /// Places a new formula or text box with its top-left corner where the
-    /// page was clicked.
-    private func place(_ tool: Tool, on page: PDFPage, at point: CGPoint) {
-        guard let document = pdfView.document else { return }
-        let pageIndex = document.index(for: page)
-        switch tool {
-        case .latex:
-            let fontSize = popover.latexFontSize
-            let bounds = box(
-                of: LaTeXRenderer.size(of: "", fontSize: fontSize), at: point,
-                on: page)
-            guard
-                let id = session.beginLaTeX(
-                    pageIndex: pageIndex, bounds: bounds, fontSize: fontSize,
-                    color: Palette.black)
-            else {
-                return
-            }
-            popover.editLaTeX(id, isNew: true)
-        case .text:
-            let fontSize = popover.textFontSize
-            let bounds = box(
-                of: TextBoxStyle.size(of: "", fontSize: fontSize), at: point,
-                on: page)
-            guard
-                let id = session.beginTextBox(
-                    pageIndex: pageIndex, bounds: bounds, fontSize: fontSize,
-                    color: Palette.black)
-            else {
-                return
-            }
-            popover.editTextBox(id, isNew: true)
-        case .highlight, .underline, .note:
-            break
-        }
+    func addFormula() {
+        guard let (page, pageIndex, centre) = placeForNewItem() else { return }
+        let fontSize = popover.latexFontSize
+        guard
+            let id = session.beginLaTeX(
+                pageIndex: pageIndex,
+                bounds: pdfView.pageFrame(of: page).box(
+                    ofShownSize: LaTeXRenderer.size(
+                        of: "", fontSize: fontSize),
+                    centredAt: centre),
+                fontSize: fontSize, color: Palette.black)
+        else { return }
+        popover.editLaTeX(id, isNew: true)
     }
 
-    /// A box of `size` with its top-left corner at `point`, moved in where it
-    /// would leave the page.
-    private func box(of size: CGSize, at point: CGPoint, on page: PDFPage)
-        -> CGRect
-    {
-        let pageBox = page.bounds(for: pdfView.displayBox)
-        let x = min(max(point.x, pageBox.minX), pageBox.maxX - size.width)
-        let y = min(
-            max(point.y - size.height, pageBox.minY),
-            pageBox.maxY - size.height)
-        return CGRect(origin: CGPoint(x: x, y: y), size: size)
+    func addTextBox() {
+        guard let (page, pageIndex, centre) = placeForNewItem() else { return }
+        let fontSize = popover.textFontSize
+        guard
+            let id = session.beginTextBox(
+                pageIndex: pageIndex,
+                bounds: pdfView.pageFrame(of: page).box(
+                    ofShownSize: TextBoxStyle.size(of: "", fontSize: fontSize),
+                    centredAt: centre),
+                fontSize: fontSize, color: Palette.black)
+        else { return }
+        popover.editTextBox(id, isNew: true)
+    }
+
+    /// The page at the centre of what's on screen, or the nearest if that's
+    /// between pages. Whatever is being written makes way: it's kept if it's
+    /// valid, and otherwise given up on without asking.
+    private func placeForNewItem() -> (
+        page: PDFPage, index: Int, centre: CGPoint
+    )? {
+        guard session.canEdit else {
+            NSSound.beep()
+            return nil
+        }
+        popover.close()
+        let area = pdfView.uncoveredRect
+        let centre = CGPoint(x: area.midX, y: area.midY)
+        guard let page = pdfView.page(for: centre, nearest: true),
+            let document = pdfView.document
+        else { return nil }
+        tool = nil
+        session.select(nil)
+        return (
+            page, document.index(for: page), pdfView.convert(centre, to: page)
+        )
     }
 
     // MARK: Mouse (from AnnotationPDFView)
@@ -404,21 +400,7 @@ final class AnnotationEditor: NSObject {
             return true
         }
         let pageIndex = document.index(for: page)
-        if let box = textBox(atRightEdge: point, pageIndex: pageIndex),
-            case .textBox(let text, let fontSize) = box.kind,
-            let mark = renderer.marks(ofItem: box.itemID).first
-        {
-            session.select(box.itemID)
-            let pageBox = page.bounds(for: pdfView.displayBox),
-                narrowest = TextBoxStyle.minimumWidth(fontSize: fontSize)
-            gesture = .setWidth(
-                WidthChange(
-                    id: box.id, mark: mark, start: box.bounds, text: text,
-                    fontSize: fontSize,
-                    widths:
-                        narrowest...max(
-                            narrowest, pageBox.maxX - box.bounds.minX),
-                    page: pageBox))
+        if startSettingWidth(at: point, on: page, pageIndex: pageIndex) {
             return true
         }
         // With a tool on, only notes, formulas and text boxes take clicks.
@@ -452,19 +434,42 @@ final class AnnotationEditor: NSObject {
             case .highlight, .underline: break
             }
         }
-        guard hit.isMovable else { return true }
+        if hit.isMovable { startMoving(hit, on: page) }
+        return true
+    }
+
+    private func startSettingWidth(
+        at point: CGPoint, on page: PDFPage, pageIndex: Int
+    ) -> Bool {
+        guard let box = textBox(atRightEdge: point, pageIndex: pageIndex),
+            case .textBox(let text, let fontSize) = box.kind,
+            let mark = renderer.marks(ofItem: box.itemID).first
+        else { return false }
+        session.select(box.itemID)
+        let frame = pdfView.pageFrame(of: page)
+        let narrowest = TextBoxStyle.minimumWidth(fontSize: fontSize)
+        let toPageEdge = frame.shownSize.width - frame.shown(box.bounds).minX
+        gesture = .setWidth(
+            WidthChange(
+                id: box.id, mark: mark, start: box.bounds, text: text,
+                fontSize: fontSize,
+                widths: narrowest...max(narrowest, toPageEdge), frame: frame))
+        return true
+    }
+
+    private func startMoving(_ item: Annotation, on page: PDFPage) {
         let box = page.bounds(for: pdfView.displayBox)
-        let rect = unionRect(of: session.annotations.item(hit.itemID))
-        let limits = CGRect(
-            x: box.minX - rect.minX, y: box.minY - rect.minY,
-            width: box.width - rect.width, height: box.height - rect.height)
+        let rect = unionRect(of: session.annotations.item(item.itemID))
         gesture = .move(
             Move(
-                itemID: hit.itemID,
-                origins: renderer.marks(ofItem: hit.itemID).map {
+                itemID: item.itemID,
+                origins: renderer.marks(ofItem: item.itemID).map {
                     ($0, $0.bounds)
-                }, limits: limits))
-        return true
+                },
+                limits: CGRect(
+                    x: box.minX - rect.minX, y: box.minY - rect.minY,
+                    width: box.width - rect.width,
+                    height: box.height - rect.height)))
     }
 
     /// Shows a move or a width change on screen while dragging; it's committed
@@ -478,7 +483,7 @@ final class AnnotationEditor: NSObject {
                     dx: offset.width, dy: offset.height)
             }
         case .setWidth(let change):
-            change.mark.bounds = change.bounds(movedBy: offset.width)
+            change.mark.bounds = change.bounds(movedBy: offset)
         case nil:
             break
         }
@@ -505,10 +510,11 @@ final class AnnotationEditor: NSObject {
                 for (mark, bounds) in move.origins { mark.bounds = bounds }
             }
         case .setWidth(let change):
-            let bounds = change.bounds(movedBy: offset.width)
+            let bounds = change.bounds(movedBy: offset)
             if bounds.size != change.start.size {
                 session.resizeTextBox(
-                    change.id, to: bounds.size, within: change.page)
+                    change.id, to: change.frame.turned(bounds.size),
+                    within: change.frame)
             } else {
                 change.mark.bounds = change.start
             }
@@ -527,20 +533,25 @@ final class AnnotationEditor: NSObject {
             atRightEdge: point, pageIndex: document.index(for: page)) != nil
     }
 
-    /// The topmost text box whose right edge is within about 4 points on
-    /// screen of `point`.
+    /// The topmost text box whose right edge on screen is within about 4
+    /// points of `point`.
     private func textBox(atRightEdge point: CGPoint, pageIndex: Int)
         -> Annotation?
     {
+        guard let page = pdfView.document?.page(at: pageIndex) else {
+            return nil
+        }
+        let frame = pdfView.pageFrame(of: page)
+        let shown = frame.shown(point)
         let reach = 4 / max(pdfView.scaleFactor, 0.01)
         return session.annotations.last { annotation in
             guard annotation.pageIndex == pageIndex,
                 case .textBox = annotation.kind
             else { return false }
-            let bounds = annotation.bounds
-            return abs(point.x - bounds.maxX) <= reach
-                && point.y >= bounds.minY - reach
-                && point.y <= bounds.maxY + reach
+            let bounds = frame.shown(annotation.bounds)
+            return abs(shown.x - bounds.maxX) <= reach
+                && shown.y >= bounds.minY - reach
+                && shown.y <= bounds.maxY + reach
         }
     }
 
@@ -551,24 +562,17 @@ final class AnnotationEditor: NSObject {
         else { return nil }
         session.select(hit.itemID)
         let menu = NSMenu()
-        switch hit.kind {
-        case .note:
+        let editTitle: String? =
+            switch hit.kind {
+            case .note: "Edit Note…"
+            case .latex: "Edit LaTeX…"
+            case .textBox: "Edit Text…"
+            case .highlight, .underline: nil
+            }
+        if let editTitle {
             menu.addItem(
-                ClosureMenuItem("Edit Note…") { [weak self] in self?.edit(hit)
-                })
+                ClosureMenuItem(editTitle) { [weak self] in self?.edit(hit) })
             menu.addItem(.separator())
-        case .latex:
-            menu.addItem(
-                ClosureMenuItem("Edit LaTeX…") { [weak self] in self?.edit(hit)
-                })
-            menu.addItem(.separator())
-        case .textBox:
-            menu.addItem(
-                ClosureMenuItem("Edit Text…") { [weak self] in self?.edit(hit)
-                })
-            menu.addItem(.separator())
-        case .highlight, .underline:
-            break
         }
         if hit.isRecolorable {
             let colours = NSMenu()

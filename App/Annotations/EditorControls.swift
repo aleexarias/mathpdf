@@ -18,3 +18,21 @@ struct FontSizeStepper: View {
             .fixedSize()
     }
 }
+
+struct FinishHint: View {
+    var body: some View {
+        Text("Esc/⌘↩ to finish.")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+    }
+}
+
+extension View {
+    /// The look of a `TextEditor` where text is being written.
+    func writingArea() -> some View {
+        scrollContentBackground(.hidden)
+            .padding(4)
+            .background(
+                .background.secondary, in: RoundedRectangle(cornerRadius: 6))
+    }
+}

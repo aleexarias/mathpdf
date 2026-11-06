@@ -7,20 +7,19 @@ import Observation
 /// minute. Call `changed(_:)` after every edit, and `flush()` to save right
 /// away: ⌘S, closing the window, going to the background, quitting.
 ///
-/// Saves run one after another and always write the latest state, and the
-/// store ignores anything older than what it already wrote, so rapid edits
-/// can't lose updates or land out of order. The disk work happens on the store
-/// actor, never on the main thread.
+/// Saves run one after another and always write the latest state, so rapid
+/// edits can't lose updates or land out of order. A save that fails stays
+/// pending and is tried again. The disk work happens on the store actor, never
+/// on the main thread.
 @MainActor @Observable
 public final class Autosaver {
     public private(set) var lastError: (any Error)?
-    public private(set) var lastSavedRevision: Int?
+    private(set) var lastSavedRevision: Int?
 
     @ObservationIgnored private let store: AnnotationStore
     @ObservationIgnored private let delay: Duration
     // observed, so `hasUnsavedChanges` updates the UI
     private var latest: AnnotationSet?
-    /// The save that the first unsaved change scheduled.
     @ObservationIgnored private var scheduledSave: Task<Void, Never>?
     @ObservationIgnored private var saveChain: Task<Void, Never>?
 
@@ -33,6 +32,10 @@ public final class Autosaver {
 
     public func changed(_ set: AnnotationSet) {
         latest = set
+        scheduleSave()
+    }
+
+    private func scheduleSave() {
         // that save will write this change too
         guard scheduledSave == nil else { return }
         scheduledSave = Task { [weak self, delay] in
@@ -59,14 +62,18 @@ public final class Autosaver {
             guard let self, let set = self.latest else { return }
             self.latest = nil
             do {
-                if try await self.store.save(set) {
-                    self.lastSavedRevision = set.revision
-                }
+                // Something else saved this PDF further along, like a second
+                // copy of the app. That stays in the history, and what the
+                // user is looking at is what gets saved, not dropped.
+                let saved =
+                    try await self.store.save(set)
+                    ? set : try await self.store.saveAsNewest(set)
+                self.lastSavedRevision = saved.revision
                 self.lastError = nil
             } catch {
-                // keep it for the next attempt
                 if self.latest == nil { self.latest = set }
                 self.lastError = error
+                self.scheduleSave()
             }
         }
         saveChain = task

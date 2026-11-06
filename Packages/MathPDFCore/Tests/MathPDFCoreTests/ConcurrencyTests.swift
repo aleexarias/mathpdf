@@ -132,6 +132,51 @@ extension DiskHeavyTests {
             #expect(try #require(saved).annotations == set.annotations)
         }
 
+        /// A save that loses to a higher revision used to vanish, with the
+        /// window showing it as saved.
+        @MainActor @Test func aSaveBehindTheStoreIsntDropped() async throws {
+            let store = AnnotationStore(rootURL: root)
+            let earlier = makeSet(revision: 5, annotations: [Samples.latex()])
+            try await store.save(earlier)
+
+            let autosaver = Autosaver(store: store, delay: .seconds(3600))
+            let behind = makeSet(
+                revision: 3, annotations: [Samples.highlight()])
+            autosaver.changed(behind)
+            await autosaver.flush()
+            #expect(!autosaver.hasUnsavedChanges)
+            #expect(autosaver.lastSavedRevision == 6)
+
+            let reopened = AnnotationStore(rootURL: root)
+            let saved = await reopened.load(documentHash: testHash).set
+            #expect(try #require(saved).annotations == behind.annotations)
+            #expect(saved?.revision == 6)
+            let history = await reopened.snapshots(documentHash: testHash)
+            #expect(history.map(\.revision) == [6, 5])
+        }
+
+        @MainActor @Test func aFailedSaveIsTriedAgainByItself() async throws {
+            let store = AnnotationStore(rootURL: root)
+            await store.setBeforeStoreReplace { throw SimulatedCrash() }
+            let autosaver = Autosaver(store: store, delay: .milliseconds(20))
+            let set = makeSet(revision: 1, annotations: [Samples.latex()])
+            autosaver.changed(set)
+            for _ in 0..<500 where autosaver.lastError == nil {
+                try await Task.sleep(for: .milliseconds(10))
+            }
+            #expect(autosaver.lastError != nil)
+            #expect(autosaver.hasUnsavedChanges)
+
+            await store.setBeforeStoreReplace(nil)
+            for _ in 0..<500 where autosaver.lastError != nil {
+                try await Task.sleep(for: .milliseconds(10))
+            }
+            #expect(autosaver.lastError == nil)
+            #expect(!autosaver.hasUnsavedChanges)
+            let saved = await store.load(documentHash: testHash).set
+            #expect(saved?.annotations == set.annotations)
+        }
+
         @MainActor @Test func failedSaveIsKeptAndRetried() async throws {
             let store = AnnotationStore(rootURL: root)
             // Make the store unreadable so saving is blocked.

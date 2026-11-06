@@ -178,6 +178,28 @@ import Testing
         #expect(a[5].color == RGBAColor(red: 0.2, green: 0.4, blue: 0.9))
     }
 
+    /// The format as of schema 4, frozen before the next change to it. It adds
+    /// what a formula expanded to; the rest is as in schema 3.
+    @Test func v4FixtureLoadsUnchanged() throws {
+        let decoded = try StoreFile.decode(fixtureData("store-v4"))
+        #expect(decoded.schemaVersion == 4)
+        let set = decoded.set
+        #expect(set.fileNameHint == "stochastic-calculus.pdf")
+        #expect(set.revision == 34)
+        #expect(set.savedAt == Timestamp.parse("2026-11-06T10:15:00.000Z"))
+        var others = set.annotations
+        let formula = others.remove(at: 4)
+        #expect(
+            formula.kind
+                == .latex(
+                    source: #"\half\R^n + \norm{x}"#, fontSize: 16,
+                    expanded: #"\frac{1}{2}\mathbb{R}^n + \left\|x\right\|"#))
+        var earlier = try StoreFile.decode(fixtureData("store-v3")).set
+            .annotations
+        earlier.remove(at: 4)
+        #expect(others == earlier)
+    }
+
     @Test func migrationIsDeterministic() throws {
         let data = try fixtureData("store-v1")
         #expect(try StoreFile.decode(data).set == StoreFile.decode(data).set)

@@ -11,11 +11,20 @@ let testHash = String(repeating: "ab", count: 32)
 /// saves. The suites nested in this one run one test at a time.
 @Suite(.serialized) enum DiskHeavyTests {}
 
+private let testFilesRoot = FileManager.default.temporaryDirectory.appending(
+    path: "mathpdf-tests-\(UUID().uuidString)", directoryHint: .isDirectory)
+
+/// Removes them once the tests are done. A test can't, as a test's store can
+/// still be writing when it ends.
+private let removesTestFiles: Void = {
+    atexit { try? FileManager.default.removeItem(at: testFilesRoot) }
+    return ()
+}()
+
 func makeTemporaryRoot() -> URL {
-    let url = FileManager.default.temporaryDirectory
-        .appending(
-            path: "mathpdf-tests-\(UUID().uuidString)",
-            directoryHint: .isDirectory)
+    _ = removesTestFiles
+    let url = testFilesRoot.appending(
+        path: UUID().uuidString, directoryHint: .isDirectory)
     try! FileManager.default.createDirectory(
         at: url, withIntermediateDirectories: true)
     return url

@@ -69,4 +69,4 @@ lint:
 	xcrun swift-format lint $(FORMAT_FLAGS) --strict $(SOURCES)
 
 clean:
-	rm -rf build mathpdf.xcodeproj
+	rm -rf build mathpdf.xcodeproj Support Packages/MathPDFCore/.build

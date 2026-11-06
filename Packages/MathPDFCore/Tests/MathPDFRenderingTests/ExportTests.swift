@@ -94,6 +94,73 @@ struct ExportTests {
         #expect(String(decoding: exported, as: UTF8.self).contains("/AP"))
     }
 
+    /// A formula whose source only draws with the user's commands.
+    private var half: Annotation {
+        Annotation(
+            kind: .latex(
+                source: #"\half"#, fontSize: 16, expanded: #"\frac{1}{2}"#),
+            pageIndex: 0,
+            bounds: CGRect(x: 100, y: 300, width: 40, height: 40),
+            color: black)
+    }
+
+    /// Other apps know nothing of the user's commands: a stamp keeps what was
+    /// typed, and draws what that expanded to.
+    @Test func aStampDrawsWhatTheFormulaExpandedTo() throws {
+        let exported = try PDFExporter.annotatedPDF(
+            original: Self.makePDF(pages: 1), annotations: [half])
+        let page = try #require(PDFDocument(data: exported)?.page(at: 0))
+        #expect(page.annotations.first?.contents == #"\half"#)
+        #expect(try darkPixels(on: page, in: half.bounds) > 0)
+    }
+
+    /// As in the viewer and the version browser.
+    @Test func aMarkDrawsWhatTheFormulaExpandedTo() throws {
+        let document = try #require(PDFDocument(data: Self.makePDF(pages: 1)))
+        let page = try #require(document.page(at: 0))
+        for (mark, _) in AnnotationMarks.marks(for: half) {
+            page.addAnnotation(mark)
+        }
+        #expect(page.annotations.first?.contents == #"\half"#)
+        #expect(try darkPixels(on: page, in: half.bounds) > 0)
+    }
+
+    /// In a letter-size `page` drawn at one pixel per point.
+    private func darkPixels(on page: PDFPage, in box: CGRect) throws -> Int {
+        let context = try #require(
+            CGContext(
+                data: nil, width: 612, height: 792, bitsPerComponent: 8,
+                bytesPerRow: 0, space: CGColorSpaceCreateDeviceGray(),
+                bitmapInfo: CGImageAlphaInfo.none.rawValue))
+        context.setFillColor(gray: 1, alpha: 1)
+        context.fill(CGRect(x: 0, y: 0, width: 612, height: 792))
+        page.draw(with: .mediaBox, to: context)
+        let pixels = try #require(context.data)
+            .assumingMemoryBound(to: UInt8.self)
+        let rows = (792 - Int(box.maxY))..<(792 - Int(box.minY))
+        return rows.reduce(0) { count, row in
+            count
+                + (Int(box.minX)..<Int(box.maxX)).count { column in
+                    pixels[row * context.bytesPerRow + column] < 128
+                }
+        }
+    }
+
+    /// The letters other apps see have to come with the PDF.
+    @Test func exportedFormulasCarryTheAMSFont() throws {
+        let exported = try PDFExporter.annotatedPDF(
+            original: Self.makePDF(pages: 1),
+            annotations: [
+                Annotation(
+                    kind: .latex(source: #"\mathbb{R}"#, fontSize: 16),
+                    pageIndex: 0,
+                    bounds: CGRect(x: 100, y: 300, width: 20, height: 20),
+                    color: black)
+            ])
+        #expect(
+            String(decoding: exported, as: UTF8.self).contains("KaTeX_AMS"))
+    }
+
     @Test func theOriginalsOwnAnnotationsAreKept() throws {
         let source = try #require(PDFDocument(data: Self.makePDF(pages: 1)))
         let square = PDFAnnotation(
@@ -114,7 +181,7 @@ struct ExportTests {
         #expect(Set(types) == ["Square", "Underline"])
     }
 
-    @Test func neverWritesTheOriginal() throws {
+    @Test func neverWritesTheOriginal() async throws {
         let folder = try Self.temporaryFolder()
         defer { try? FileManager.default.removeItem(at: folder) }
         let originalURL = folder.appending(path: "lecture.pdf")
@@ -131,8 +198,8 @@ struct ExportTests {
             originalURL, folder.appending(path: "sub/../lecture.pdf"),
             URL(filePath: originalURL.path + "/../lecture.pdf"),
         ] {
-            #expect(throws: PDFExporter.Failure.wouldReplaceOriginal) {
-                try PDFExporter.export(
+            await #expect(throws: PDFExporter.Failure.wouldReplaceOriginal) {
+                try await PDFExporter.export(
                     original: original, annotations: notes, to: spelling,
                     originalURL: originalURL)
             }
@@ -140,7 +207,35 @@ struct ExportTests {
         #expect(try Data(contentsOf: originalURL) == original)
     }
 
-    @Test func aNewExportReplacesTheLastOneInOneStep() throws {
+    /// The PDF is written off the main thread, and a formula is drawn as it's
+    /// written, bars and all.
+    @Test func aFormulaIsExportedInFull() async throws {
+        let folder = try Self.temporaryFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let original = Self.makePDF(pages: 1)
+        let formula = Annotation(
+            kind: .latex(source: #"\frac{1}{2}+\sqrt{x}"#, fontSize: 40),
+            pageIndex: 0,
+            bounds: CGRect(x: 72, y: 300, width: 200, height: 100),
+            color: RGBAColor(red: 0, green: 0, blue: 0))
+        let url = folder.appending(path: "exported.pdf")
+        try await PDFExporter.export(
+            original: original, annotations: [formula], to: url,
+            originalURL: nil)
+
+        func picture(_ document: PDFDocument?) throws -> Data? {
+            try #require(document?.page(at: 0)).thumbnail(
+                of: CGSize(width: 306, height: 396), for: .mediaBox
+            ).tiffRepresentation
+        }
+        let expected = try PDFExporter.annotatedPDF(
+            original: original, annotations: [formula])
+        let written = try picture(PDFDocument(url: url))
+        #expect(written == (try picture(PDFDocument(data: expected))))
+        #expect(written != (try picture(PDFDocument(data: original))))
+    }
+
+    @Test func aNewExportReplacesTheLastOneInOneStep() async throws {
         let folder = try Self.temporaryFolder()
         defer { try? FileManager.default.removeItem(at: folder) }
         let originalURL = folder.appending(path: "lecture.pdf")
@@ -160,7 +255,7 @@ struct ExportTests {
                 bounds: CGRect(x: 72, y: 500, width: 100, height: 14),
                 color: red)
         ]
-        try PDFExporter.export(
+        try await PDFExporter.export(
             original: original, annotations: one, to: target,
             originalURL: originalURL)
         let two =
@@ -170,7 +265,7 @@ struct ExportTests {
                     bounds: CGRect(x: 72, y: 600, width: 100, height: 14),
                     color: yellow)
             ]
-        try PDFExporter.export(
+        try await PDFExporter.export(
             original: original, annotations: two, to: target,
             originalURL: originalURL)
 
@@ -181,6 +276,30 @@ struct ExportTests {
             try FileManager.default.contentsOfDirectory(atPath: folder.path)
                 .sorted() == ["lecture.pdf", "lecture_annotated.pdf"])
         #expect(try Data(contentsOf: originalURL) == original)
+    }
+
+    /// PDFKit leaves annotations out of such a PDF without saying so, and the
+    /// export looked like it worked.
+    @Test func annotationsAreRefusedWhereCommentingIsntAllowed() throws {
+        let document = try #require(PDFDocument(data: Self.makePDF(pages: 1)))
+        let restricted = try #require(
+            document.dataRepresentation(options: [
+                PDFDocumentWriteOption.ownerPasswordOption: "owner",
+                PDFDocumentWriteOption.accessPermissionsOption:
+                    PDFAccessPermissions.allowsHighQualityPrinting.rawValue,
+            ]))
+        #expect(PDFDocument(data: restricted)?.allowsCommenting == false)
+        let note = Annotation(
+            kind: .textBox(text: "x", fontSize: 12), pageIndex: 0,
+            bounds: CGRect(x: 10, y: 10, width: 50, height: 20),
+            color: RGBAColor(red: 0, green: 0, blue: 0))
+        #expect(throws: PDFExporter.Failure.commentingNotAllowed) {
+            try PDFExporter.annotatedPDF(
+                original: restricted, annotations: [note])
+        }
+        #expect(
+            try PDFExporter.annotatedPDF(original: restricted, annotations: [])
+                .isEmpty == false)
     }
 
     @Test func passwordProtectedPDFsAreRefused() throws {

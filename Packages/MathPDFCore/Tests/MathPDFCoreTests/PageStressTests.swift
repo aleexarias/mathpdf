@@ -275,7 +275,7 @@ extension DiskHeavyTests {
                         set, identity: identities[current], pdf: pdf(current))
                     expected[current] = set.annotations
                     set.documentHash = hash(next)
-                    set = try await store.saveAfterPageChange(set)
+                    set = try await store.saveAsNewest(set)
                     current = next
                 }
                 expected[current] = set.annotations

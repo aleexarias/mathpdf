@@ -136,7 +136,7 @@ extension DiskHeavyTests {
             let other = String(repeating: "cd", count: 32)
             try await store.save(makeSet(hash: other, revision: 9))
 
-            let moved = try await store.saveAfterPageChange(
+            let moved = try await store.saveAsNewest(
                 makeSet(hash: other, revision: 4, annotations: [mark(page: 0)])
             )
             #expect(moved.revision == 10)
@@ -145,7 +145,7 @@ extension DiskHeavyTests {
             #expect(loaded?.revision == 10)
 
             let fresh = String(repeating: "ef", count: 32)
-            let first = try await store.saveAfterPageChange(
+            let first = try await store.saveAsNewest(
                 makeSet(hash: fresh, revision: 4))
             #expect(first.revision == 5)
         }
@@ -236,7 +236,7 @@ extension DiskHeavyTests {
                         documentID: document, pageIDs: [UUID()]),
                     pdf: Data("PDF \(order)".utf8))
                 set.documentHash = hash(order + 1)
-                set = try await store.saveAfterPageChange(set)
+                set = try await store.saveAsNewest(set)
                 try await store.savePageIdentity(
                     PageIdentity(documentID: document, pageIDs: [UUID()]),
                     documentHash: hash(order + 1))
@@ -285,7 +285,7 @@ extension DiskHeavyTests {
                 makeSet(revision: 0), identity: PageIdentity(pageCount: 1),
                 pdf: Data("PDF".utf8))
             next.documentHash = String(repeating: "cd", count: 32)
-            next = try await store.saveAfterPageChange(next)
+            next = try await store.saveAsNewest(next)
             let first = try #require(
                 await store.snapshots(documentHash: testHash).first)
             let second = try #require(
@@ -314,7 +314,7 @@ extension DiskHeavyTests {
                     PageIdentity(documentID: document, pageIDs: [UUID()]),
                     documentHash: hashes[order + 1])
                 set.documentHash = hashes[order + 1]
-                set = try await store.saveAfterPageChange(set)
+                set = try await store.saveAsNewest(set)
                 clock.advance(by: step)
             }
             return (hashes, set)
@@ -368,7 +368,7 @@ extension DiskHeavyTests {
                     await store.pageIdentity(documentHash: hashes[4])),
                 pdf: Data(repeating: 9, count: 40))
             set.documentHash = hashes[0]
-            set = try await store.saveAfterPageChange(set)
+            set = try await store.saveAsNewest(set)
             #expect(
                 await copies(in: store, of: hashes[0])
                     == [hashes[3], hashes[4]])

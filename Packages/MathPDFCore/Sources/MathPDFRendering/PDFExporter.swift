@@ -14,6 +14,7 @@ public enum PDFExporter {
     public enum Failure: LocalizedError, Equatable {
         case unreadablePDF
         case locked
+        case commentingNotAllowed
         case wouldReplaceOriginal
         case couldntBuild
 
@@ -22,6 +23,11 @@ public enum PDFExporter {
             case .unreadablePDF: "The PDF couldn't be read."
             case .locked:
                 "The PDF is password-protected, so a copy can't be written."
+            case .commentingNotAllowed:
+                """
+                The PDF's security settings don't allow annotations, so a \
+                copy with them can't be written.
+                """
             case .wouldReplaceOriginal:
                 """
                 That's the original PDF, which mathpdf never changes. Choose \
@@ -39,43 +45,75 @@ public enum PDFExporter {
             path: "\(name)_annotated.pdf")
     }
 
-    public static func annotatedPDF(
+    static func annotatedPDF(
         original data: Data, annotations: [Annotation]
     ) throws(Failure) -> Data {
+        guard
+            let output = try annotatedDocument(
+                original: data, annotations: annotations
+            ).dataRepresentation()
+        else { throw .couldntBuild }
+        return output
+    }
+
+    private static func annotatedDocument(
+        original data: Data, annotations: [Annotation]
+    ) throws(Failure) -> PDFDocument {
         guard let document = PDFDocument(data: data) else {
             throw .unreadablePDF
         }
         guard !document.isLocked else { throw .locked }
-        for (pageIndex, mark) in marks(for: annotations) {
+        // PDFKit would leave them out without saying so
+        guard annotations.isEmpty || document.allowsCommenting else {
+            throw .commentingNotAllowed
+        }
+        for (pageIndex, mark) in marks(for: annotations, in: document) {
             document.page(at: pageIndex)?.addAnnotation(mark)
         }
-        guard let output = document.dataRepresentation() else {
-            throw .couldntBuild
-        }
-        return output
+        return document
+    }
+
+    /// A document only the export uses, so it's safe to hand to another
+    /// thread.
+    private struct DocumentToWrite: @unchecked Sendable {
+        let document: PDFDocument
     }
 
     /// Writes the annotated copy to `url` in one step: whatever was there
     /// before stays until the new file is complete. Never to `original`.
+    /// Formulas are typeset here, on the main thread, but writing a big PDF
+    /// takes seconds, so that happens off it.
     public static func export(
         original data: Data, annotations: [Annotation], to url: URL,
         originalURL: URL?
-    ) throws {
+    ) async throws {
         if let originalURL, isSameFile(url, originalURL) {
             throw Failure.wouldReplaceOriginal
         }
-        let output = try annotatedPDF(original: data, annotations: annotations)
-        removeLeftoverTempFiles(for: url)
-        try AtomicFile.write(output, to: url)
+        let job = DocumentToWrite(
+            document: try annotatedDocument(
+                original: data, annotations: annotations))
+        try await Task.detached(priority: .userInitiated) {
+            guard let output = job.document.dataRepresentation() else {
+                throw Failure.couldntBuild
+            }
+            removeLeftoverTempFiles(for: url)
+            try AtomicFile.write(output, to: url)
+        }.value
     }
 
     // MARK: Building
 
     /// Our annotations as PDF annotations, by page. The lines of a highlight
     /// or underline become one annotation, and so do a note's underlines.
-    static func marks(for annotations: [Annotation]) -> [(
+    static func marks(
+        for annotations: [Annotation], in document: PDFDocument
+    ) -> [(
         pageIndex: Int, mark: PDFAnnotation
     )] {
+        func rotation(_ pageIndex: Int) -> Int {
+            document.page(at: pageIndex)?.rotation ?? 0
+        }
         let items = Dictionary(grouping: annotations, by: \.itemID)
         var done = Set<UUID>()
         var marks: [(pageIndex: Int, mark: PDFAnnotation)] = []
@@ -96,7 +134,8 @@ public enum PDFExporter {
                         (
                             page,
                             AnnotationMarks.markup(
-                                type, lines.map(\.bounds), color)
+                                type, lines.map(\.bounds), color,
+                                pageRotation: rotation(page))
                         ))
                 }
             case let .note(text, anchors):
@@ -106,7 +145,8 @@ public enum PDFExporter {
                             annotation.pageIndex,
                             AnnotationMarks.markup(
                                 .underline, anchors,
-                                AnnotationMarks.anchorColor(for: color))
+                                AnnotationMarks.anchorColor(for: color),
+                                pageRotation: rotation(annotation.pageIndex))
                         ))
                 }
                 marks.append(
@@ -123,10 +163,11 @@ public enum PDFExporter {
                             annotation, text: text, fontSize: fontSize,
                             color: color)
                     ))
-            case let .latex(source, fontSize):
+            case let .latex(source, fontSize, expanded):
                 let formula = LaTeXAnnotation(
                     bounds: annotation.bounds, source: source,
-                    fontSize: fontSize, color: color)
+                    expanded: expanded, fontSize: fontSize, color: color,
+                    pageRotation: rotation(annotation.pageIndex))
                 marks.append((annotation.pageIndex, formula))
             }
         }
@@ -135,15 +176,14 @@ public enum PDFExporter {
 
     // MARK: Files
 
-    /// Whether two URLs name the same file, however they're spelled.
+    /// Whether two URLs name the same file, however they're spelled, down to
+    /// the case of a name on a case-insensitive disk.
     public nonisolated static func isSameFile(_ a: URL, _ b: URL) -> Bool {
         if a.standardizedFileURL.resolvingSymlinksInPath()
             == b.standardizedFileURL.resolvingSymlinksInPath()
         {
             return true
         }
-        // Different spellings of one file (e.g. case on a case-insensitive
-        // disk): same file ID.
         let ids = [a, b].map {
             try? $0.resourceValues(forKeys: [.fileResourceIdentifierKey])
                 .fileResourceIdentifier

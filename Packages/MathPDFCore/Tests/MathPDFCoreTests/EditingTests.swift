@@ -76,21 +76,66 @@ struct EditingTests {
             [note].finishingNote(note.id, text: "old", isNew: false) == nil)
     }
 
-    @Test func aFinishedFormulaKeepsItsTopLeftCorner() throws {
+    @Test func aNewFormulaStaysCentredWhereItWasBegun() throws {
         let begun = [Annotation]().beginningLaTeX(
             pageIndex: 0,
-            bounds: CGRect(x: 100, y: 600, width: 60, height: 25),
+            bounds: CGRect(x: 100, y: 600, width: 60, height: 20),
             fontSize: 16, color: .init(red: 0, green: 0, blue: 0))
         let edit = try #require(
             begun.edit.annotations.finishingLaTeX(
                 begun.id, source: "x^2", fontSize: 16,
-                size: CGSize(width: 30, height: 40), isNew: true))
+                size: CGSize(width: 200, height: 40), isNew: true))
+        #expect(
+            edit.annotations[0].bounds
+                == CGRect(x: 30, y: 590, width: 200, height: 40))
+        #expect(edit.undo == .to([]))
+        #expect(edit.actionName == "Add LaTeX")
+    }
+
+    @Test func aNewTextBoxStaysCentredWhereItWasBegun() throws {
+        let begun = [Annotation]().beginningTextBox(
+            pageIndex: 0,
+            bounds: CGRect(x: 100, y: 600, width: 60, height: 20),
+            fontSize: 14, color: .init(red: 0, green: 0, blue: 0))
+        let edit = try #require(
+            begun.edit.annotations.finishingTextBox(
+                begun.id, text: "hello", fontSize: 14,
+                size: CGSize(width: 200, height: 40), isNew: true))
+        #expect(
+            edit.annotations[0].bounds
+                == CGRect(x: 30, y: 590, width: 200, height: 40))
+    }
+
+    /// A big one centred on a small page has to give way.
+    @Test func aNewFormulaStillStaysOnItsPage() throws {
+        let page = PageFrame(box: CGRect(x: 0, y: 0, width: 300, height: 300))
+        let begun = [Annotation]().beginningLaTeX(
+            pageIndex: 0,
+            bounds: CGRect(x: 120, y: 140, width: 60, height: 20),
+            fontSize: 16, color: .init(red: 0, green: 0, blue: 0))
+        let edit = try #require(
+            begun.edit.annotations.finishingLaTeX(
+                begun.id, source: "x^2", fontSize: 16,
+                size: CGSize(width: 400, height: 40), isNew: true,
+                within: page))
+        #expect(edit.annotations[0].bounds.minX == 0)
+        #expect(edit.annotations[0].bounds.midY == 150)
+    }
+
+    /// Editing a formula that's already placed doesn't move its corner.
+    @Test func anEditedFormulaKeepsItsTopLeftCorner() throws {
+        let formula = Annotation(
+            kind: .latex(source: "x", fontSize: 16), pageIndex: 0,
+            bounds: CGRect(x: 100, y: 600, width: 60, height: 25),
+            color: .init(red: 0, green: 0, blue: 0))
+        let edit = try #require(
+            [formula].finishingLaTeX(
+                formula.id, source: "x^2", fontSize: 16,
+                size: CGSize(width: 30, height: 40), isNew: false))
         #expect(
             edit.annotations[0].bounds
                 // top stays at 625
                 == CGRect(x: 100, y: 585, width: 30, height: 40))
-        #expect(edit.undo == .to([]))
-        #expect(edit.actionName == "Add LaTeX")
     }
 
     @Test func emptyFormulasAreDeleted() throws {
@@ -126,8 +171,8 @@ struct EditingTests {
                 size: CGSize(width: 30, height: 24), isNew: true))
         #expect(
             added.annotations[0].bounds
-                // the top stays at 620
-                == CGRect(x: 50, y: 596, width: 30, height: 24))
+                // the centre stays at (70, 610)
+                == CGRect(x: 55, y: 598, width: 30, height: 24))
         #expect(added.actionName == "Add Text")
         #expect(added.undo == .to([]))
         #expect(
@@ -158,7 +203,7 @@ struct EditingTests {
     }
 
     @Test func aGrowingBoxStaysOnItsPage() throws {
-        let page = CGRect(x: 0, y: 0, width: 612, height: 792)
+        let page = PageFrame(box: CGRect(x: 0, y: 0, width: 612, height: 792))
         let begun = [Annotation]().beginningTextBox(
             pageIndex: 0, bounds: CGRect(x: 600, y: 2, width: 10, height: 20),
             fontSize: 14, color: blue)
@@ -197,7 +242,7 @@ struct EditingTests {
             narrower.actionName == "Resize Text"
                 && narrower.undo == .toPrevious)
         #expect([box].resizingTextBox(box.id, to: box.bounds.size) == nil)
-        let page = CGRect(x: 0, y: 0, width: 612, height: 792)
+        let page = PageFrame(box: CGRect(x: 0, y: 0, width: 612, height: 792))
         let wide = try #require(
             [box].resizingTextBox(
                 box.id, to: CGSize(width: 600, height: 24), within: page))
@@ -322,4 +367,140 @@ struct EditingTests {
     }
 
     private struct Failure: Error {}
+
+    // MARK: Relinking
+
+    private func onPage(_ index: Int, at rect: CGRect) -> Annotation {
+        Annotation(
+            kind: .underline, pageIndex: index, bounds: rect,
+            color: RGBAColor(red: 1, green: 0, blue: 0))
+    }
+
+    private let letter = CGRect(x: 0, y: 0, width: 612, height: 792)
+    private let line = CGRect(x: 72, y: 600, width: 100, height: 14)
+
+    @Test func relinkingCopiesAnnotationsAsOneUndoableStep() throws {
+        let source = [onPage(0, at: line), onPage(1, at: line)]
+        let relinked = try #require(
+            [Annotation]().relinking(source, pageBoxes: [letter, letter]))
+        #expect(relinked.edit.annotations == source)
+        #expect(relinked.leftOut == 0)
+        #expect(relinked.edit.undo == .toPrevious)
+    }
+
+    @Test func relinkingLeavesOutWhatHasNoPage() throws {
+        let kept = onPage(1, at: line)
+        let relinked = try #require(
+            [Annotation]().relinking(
+                [kept, onPage(2, at: line), onPage(-1, at: line)],
+                pageBoxes: [letter, letter]))
+        #expect(relinked.edit.annotations == [kept])
+        #expect(relinked.leftOut == 2)
+    }
+
+    @Test func relinkingLeavesOutWhatWouldBeOffThePage() throws {
+        let small = CGRect(x: 0, y: 0, width: 150, height: 150)
+        let inside = onPage(0, at: CGRect(x: 10, y: 10, width: 50, height: 14))
+        let partly = onPage(
+            0, at: CGRect(x: 140, y: 10, width: 50, height: 14))
+        let relinked = try #require(
+            [Annotation]().relinking(
+                [inside, partly, onPage(0, at: line)], pageBoxes: [small]))
+        #expect(relinked.edit.annotations == [inside, partly])
+        #expect(relinked.leftOut == 1)
+    }
+
+    @Test func relinkingNothingThatFitsChangesNothing() {
+        #expect(
+            [Annotation]().relinking(
+                [onPage(3, at: line)], pageBoxes: [letter]) == nil)
+    }
+
+    // MARK: On rotated pages
+
+    private func frame(_ rotation: Int) -> PageFrame {
+        PageFrame(
+            box: CGRect(x: 0, y: 0, width: 612, height: 792),
+            rotation: rotation)
+    }
+
+    /// The size is what's seen on screen: on a sideways page it's stored the
+    /// other way round.
+    @Test(arguments: [0, 90, 180, 270])
+    func aNewFormulaIsCentredAndTheRightWayRound(rotation: Int) throws {
+        let page = frame(rotation)
+        let centre = CGPoint(x: 300, y: 400)
+        let begun = [Annotation]().beginningLaTeX(
+            pageIndex: 0,
+            bounds: page.box(
+                ofShownSize: CGSize(width: 60, height: 20), centredAt: centre),
+            fontSize: 16, color: .init(red: 0, green: 0, blue: 0))
+        let edit = try #require(
+            begun.edit.annotations.finishingLaTeX(
+                begun.id, source: "x^2", fontSize: 16,
+                size: CGSize(width: 200, height: 40), isNew: true,
+                within: page))
+        let bounds = edit.annotations[0].bounds
+        #expect(bounds.midX == centre.x && bounds.midY == centre.y)
+        #expect(
+            bounds.size == page.turned(CGSize(width: 200, height: 40)))
+    }
+
+    /// Editing keeps the corner that's at the top left on screen, whichever
+    /// corner of the bounds that is.
+    @Test(arguments: [0, 90, 180, 270])
+    func anEditedFormulaKeepsItsTopLeftCornerOnScreen(rotation: Int) throws {
+        let page = frame(rotation)
+        let formula = Annotation(
+            kind: .latex(source: "x", fontSize: 16), pageIndex: 0,
+            bounds: page.onPage(
+                CGRect(x: 100, y: 200, width: 60, height: 20)),
+            color: .init(red: 0, green: 0, blue: 0))
+        let edit = try #require(
+            [formula].finishingLaTeX(
+                formula.id, source: "x^2", fontSize: 16,
+                size: CGSize(width: 90, height: 50), isNew: false,
+                within: page))
+        #expect(
+            page.shown(edit.annotations[0].bounds)
+                == CGRect(x: 100, y: 170, width: 90, height: 50))
+    }
+
+    @Test(arguments: [0, 90, 180, 270])
+    func aResizedTextBoxKeepsItsTopLeftCornerOnScreen(rotation: Int) throws {
+        let page = frame(rotation)
+        let box = Annotation(
+            kind: .textBox(text: "words", fontSize: 14), pageIndex: 0,
+            bounds: page.onPage(
+                CGRect(x: 100, y: 200, width: 60, height: 20)),
+            color: .init(red: 0, green: 0, blue: 0))
+        let edit = try #require(
+            [box].resizingTextBox(
+                box.id, to: CGSize(width: 120, height: 40), within: page))
+        #expect(
+            page.shown(edit.annotations[0].bounds)
+                == CGRect(x: 100, y: 180, width: 120, height: 40))
+        #expect(
+            [box].resizingTextBox(
+                box.id, to: CGSize(width: 60, height: 20), within: page)
+                == nil)
+    }
+
+    /// The page's limits are those of the page as shown.
+    @Test(arguments: [90, 270])
+    func aSidewaysPageKeepsAWideBoxOnIt(rotation: Int) throws {
+        let page = frame(rotation)
+        let formula = Annotation(
+            kind: .latex(source: "x", fontSize: 16), pageIndex: 0,
+            bounds: page.onPage(
+                CGRect(x: 700, y: 100, width: 60, height: 20)),
+            color: .init(red: 0, green: 0, blue: 0))
+        let edit = try #require(
+            [formula].finishingLaTeX(
+                formula.id, source: "x^2", fontSize: 16,
+                size: CGSize(width: 200, height: 20), isNew: false,
+                within: page))
+        // 792 wide on screen, not 612
+        #expect(page.shown(edit.annotations[0].bounds).maxX == 792)
+    }
 }

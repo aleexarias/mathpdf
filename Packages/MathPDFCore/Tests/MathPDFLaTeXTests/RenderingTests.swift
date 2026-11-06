@@ -61,6 +61,23 @@ struct RenderingTests {
     /// Other PDF editors only see what PDFKit writes: each formula must stay a
     /// stamp annotation (so it can be moved there), carrying its drawing as an
     /// appearance stream.
+    /// Pages stay white in dark mode, so the box being written has to show on
+    /// white whichever mode the app is in.
+    @Test(arguments: [NSAppearance.Name.aqua, .darkAqua])
+    func anEmptyFormulaShowsOnAWhitePage(_ name: NSAppearance.Name) throws {
+        let formula = LaTeXAnnotation(
+            bounds: CGRect(x: 0, y: 0, width: 80, height: 30), source: "",
+            fontSize: 16, color: .black)
+        var drawn: [Pixel] = []
+        try #require(NSAppearance(named: name))
+            .performAsCurrentDrawingAppearance {
+                drawn = pixels(size: formula.bounds.size) {
+                    formula.draw(with: .mediaBox, in: $0)
+                }
+            }
+        #expect(drawn.count { $0.red < 180 } > 100)
+    }
+
     @Test func writtenFormulasAreStampsWithAppearances() throws {
         let document = PDFDocument()
         let page = PDFPage()
@@ -83,6 +100,24 @@ struct RenderingTests {
         #expect(
             rows.max()! > Int(stamp.bounds.width * Self.scale) / 2,
             "the written formula lost its bar")
+    }
+
+    /// Even with the command it used gone, a formula draws what it was
+    /// entered as, and still has what was typed.
+    @Test func aFormulaDrawsItsExpansionAndKeepsItsSource() throws {
+        guard
+            case .formula(let typeset) = LaTeXRenderer.typeset(
+                #"\frac{1}{2}"#, fontSize: 16, color: .black)
+        else { throw Failure("didn't typeset") }
+        let formula = LaTeXAnnotation(
+            bounds: CGRect(origin: .zero, size: typeset.size),
+            source: #"\half"#, expanded: #"\frac{1}{2}"#, fontSize: 16,
+            color: .black)
+        #expect(formula.contents == #"\half"#)
+        let rows = darkPixelsPerRow(size: formula.bounds.size) {
+            formula.draw(with: .mediaBox, in: $0)
+        }
+        #expect(rows.max()! > Int(formula.bounds.width * Self.scale) / 2)
     }
 
     // MARK: Helpers

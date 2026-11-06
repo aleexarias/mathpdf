@@ -1,8 +1,8 @@
 import MathPDFCore
 import SwiftUI
 
-/// Banners above the page: recovery, blocked data, relink suggestions and save
-/// errors.
+/// Banners above the page: recovery, blocked data, relink suggestions, what
+/// keeps annotations from being changed here, and save errors.
 struct NoticeBar: View {
     let session: DocumentSession
 
@@ -10,6 +10,40 @@ struct NoticeBar: View {
         VStack(spacing: 0) {
             if let notice = session.notice {
                 banner(for: notice)
+            }
+            if let editor = session.editingSession {
+                Banner(
+                    style: .info,
+                    text:
+                        """
+                        An identical copy of this PDF is open as \
+                        “\(editor.fileName)”. Identical PDFs share their \
+                        annotations, so they can only be changed there until \
+                        it closes.
+                        """
+                ) {}
+            }
+            if !session.isLocked, !session.allowsCommenting {
+                Banner(
+                    style: .info,
+                    text:
+                        """
+                        The security settings of “\(session.fileName)” don't \
+                        allow annotations, so none can be added to it.
+                        """
+                ) {}
+            }
+            if session.isFileChangedElsewhere {
+                Banner(
+                    style: .warning,
+                    text:
+                        """
+                        “\(session.fileName)” was changed or removed by \
+                        another app. This window keeps what it opened, and \
+                        annotations made here stay with that. Reopen the file \
+                        to see the new one.
+                        """
+                ) {}
             }
             if let error = session.autosaver.lastError {
                 Banner(
@@ -91,17 +125,24 @@ struct NoticeBar: View {
                 Button("Relink…") { session.isShowingRelinkSheet = true }
                 dismissButton
             }
-        case let .relinked(fileName, count):
+        case let .relinked(fileName, count, leftOut):
             Banner(
-                style: .success,
-                text:
-                    """
+                style: leftOut == 0 ? .success : .info,
+                text: """
                     Copied \(count) annotation\(count == 1 ? "" : "s") from \
-                    “\(fileName)”. The original set is unchanged.
+                    “\(fileName)”. \(
+                        leftOut == 0
+                        ? "" : "\(leftOut) didn't fit on this PDF's pages. ")\
+                    The original set is unchanged, and you can undo this.
                     """
             ) {
                 dismissButton
             }
+        case .exporting(let url):
+            Banner(
+                style: .info,
+                text: "Exporting “\(url.lastPathComponent)”…"
+            ) {}
         case let .exported(url, count, _):
             Banner(
                 style: .success,
@@ -126,8 +167,7 @@ struct NoticeBar: View {
 
     private var revealButton: some View {
         Button("Show Data Folder") {
-            DataFolder.reveal(
-                session.dataFolderURL ?? Persistence.store.rootURL)
+            Persistence.revealDataFolder(of: session)
         }
     }
 

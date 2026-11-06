@@ -8,6 +8,7 @@ struct RelinkSheet: View {
     let session: DocumentSession
     @Environment(\.dismiss) private var dismiss
     @State private var selection: AnnotationStore.StoredSetSummary.ID?
+    @State private var isLoaded = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -15,8 +16,9 @@ struct RelinkSheet: View {
             Text(
                 """
                 Copy a saved annotation set onto “\(session.fileName)”. The \
-                set you pick stays as it is. If the pages changed, \
-                annotations may land in the wrong place.
+                set you pick stays as it is. Annotations go by page number, \
+                so if pages were added or removed, some may land in the wrong \
+                place. You can undo this.
                 """
             )
             .foregroundStyle(.secondary)
@@ -26,6 +28,14 @@ struct RelinkSheet: View {
                 CandidateRow(candidate: $0, pageCount: session.pdf?.pageCount)
             }
             .frame(minHeight: 220)
+            .overlay {
+                if isLoaded, session.relinkCandidates.isEmpty {
+                    ContentUnavailableView(
+                        "No Saved Annotations", systemImage: "doc.on.doc",
+                        description: Text(
+                            "There are no other annotations to copy."))
+                }
+            }
 
             HStack {
                 Spacer()
@@ -49,6 +59,14 @@ struct RelinkSheet: View {
         .padding(20)
         .frame(width: 560)
         .onAppear { selection = session.relinkCandidates.first?.id }
+        .task {
+            await session.refreshRelinkCandidates()
+            isLoaded = true
+            if !session.relinkCandidates.contains(where: { $0.id == selection }
+            ) {
+                selection = session.relinkCandidates.first?.id
+            }
+        }
     }
 }
 

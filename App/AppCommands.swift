@@ -11,6 +11,12 @@ struct AppCommands: Commands {
 
     private var canEdit: Bool { viewer != nil && session?.canEdit == true }
 
+    /// The main window rather than the key one: while a formula is being
+    /// written, its editor is key.
+    private func closeFrontWindow() {
+        (NSApp.mainWindow ?? NSApp.keyWindow)?.performClose(nil)
+    }
+
     private func brush(_ tool: AnnotationEditor.Tool) -> Binding<Bool> {
         Binding {
             viewer?.editor.tool == tool
@@ -20,10 +26,17 @@ struct AppCommands: Commands {
     }
 
     var body: some Commands {
-        // Replaces Save As, Duplicate, Rename and Revert. Annotations are
-        // saved in their own store, and page changes are written as they're
-        // made.
+        CommandGroup(replacing: .appSettings) {
+            Button("Settings…") { LaTeXCommandsWindow.shared.show() }
+                .keyboardShortcut(",")
+        }
+
+        // Replaces Save As, Duplicate, Rename and Revert, and the standard
+        // Close. Annotations are saved in their own store, and page changes
+        // are written as they're made.
         CommandGroup(replacing: .saveItem) {
+            Button("Close") { closeFrontWindow() }
+                .keyboardShortcut("w")
             Button("Save") { Task { await session?.flush() } }
                 .keyboardShortcut("s")
                 .disabled(session == nil)
@@ -46,8 +59,7 @@ struct AppCommands: Commands {
             }
             .disabled(session?.canRelink != true)
             Button("Reveal Data Folder in Finder") {
-                DataFolder.reveal(
-                    session?.dataFolderURL ?? Persistence.store.rootURL)
+                Persistence.revealDataFolder(of: session)
             }
         }
 
@@ -68,15 +80,17 @@ struct AppCommands: Commands {
                     .keyboardShortcut("u", modifiers: [.control, .command])
                 Toggle("Note Tool", isOn: brush(.note))
                     .keyboardShortcut("n", modifiers: [.control, .command])
-                Toggle("LaTeX Tool", isOn: brush(.latex))
+                Button("New Formula") { viewer?.editor.addFormula() }
                     .keyboardShortcut("l", modifiers: [.control, .command])
-                Toggle("Text Tool", isOn: brush(.text))
+                Button("New Text Box") { viewer?.editor.addTextBox() }
                     .keyboardShortcut("t", modifiers: [.control, .command])
             }
             .disabled(!canEdit)
             Divider()
             Button("Delete Annotation") { viewer?.editor.deleteSelection() }
                 .disabled(!canEdit || session?.selection == nil)
+            Divider()
+            Button("LaTeX Commands…") { LaTeXCommandsWindow.shared.show() }
         }
 
         CommandGroup(after: .toolbar) {

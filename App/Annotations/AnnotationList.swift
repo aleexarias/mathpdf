@@ -16,7 +16,7 @@ struct AnnotationList: View {
                 description: Text(
                     """
                     Select text and choose Highlight, Underline or Note, or \
-                    click the page with the LaTeX or Text tool.
+                    press the LaTeX or Text button.
                     """
                 ))
         } else {
@@ -75,7 +75,7 @@ struct AnnotationList: View {
             return text.isEmpty ? "(no text)" : text
         case .note(let text, _):
             return text.isEmpty ? "(empty note)" : text
-        case .latex(let source, _):
+        case .latex(let source, _, _):
             return source
         case .textBox(let text, _):
             return text

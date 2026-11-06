@@ -1,0 +1,140 @@
+{"schemaVersion":4,"sha256":"408b05056cbdeabdb1ae23d190f93144c948acb2faf41b108972ea51f65af7dc","payload":{
+  "annotations" : [
+    {
+      "bounds" : [
+        72,
+        700,
+        400,
+        13.5
+      ],
+      "color" : [
+        1,
+        0.88,
+        0.32,
+        0.5
+      ],
+      "createdAt" : "2026-11-04T09:00:00.125Z",
+      "groupID" : "3A000000-0000-4000-8000-000000000100",
+      "id" : "3A000000-0000-4000-8000-000000000001",
+      "modifiedAt" : "2026-11-04T09:00:00.125Z",
+      "pageIndex" : 0,
+      "type" : "highlight"
+    },
+    {
+      "bounds" : [
+        72,
+        685.25,
+        180.5,
+        13.5
+      ],
+      "color" : [
+        1,
+        0.88,
+        0.32,
+        0.5
+      ],
+      "createdAt" : "2026-11-04T09:00:00.125Z",
+      "groupID" : "3A000000-0000-4000-8000-000000000100",
+      "id" : "3A000000-0000-4000-8000-000000000002",
+      "modifiedAt" : "2026-11-04T09:00:00.125Z",
+      "pageIndex" : 0,
+      "type" : "highlight"
+    },
+    {
+      "bounds" : [
+        90,
+        500,
+        210,
+        12
+      ],
+      "color" : [
+        1,
+        0.23,
+        0.19,
+        1
+      ],
+      "createdAt" : "2026-11-04T09:00:00.125Z",
+      "id" : "3A000000-0000-4000-8000-000000000003",
+      "modifiedAt" : "2026-11-04T09:05:30.750Z",
+      "pageIndex" : 1,
+      "type" : "underline"
+    },
+    {
+      "anchorRects" : [
+        [
+          72,
+          600,
+          120,
+          12
+        ]
+      ],
+      "bounds" : [
+        195,
+        600,
+        15,
+        15
+      ],
+      "color" : [
+        1,
+        0.95,
+        0.62,
+        1
+      ],
+      "createdAt" : "2026-11-04T09:00:00.125Z",
+      "id" : "3A000000-0000-4000-8000-000000000004",
+      "modifiedAt" : "2026-11-04T09:00:00.125Z",
+      "pageIndex" : 1,
+      "text" : "Use Itô's lemma here.",
+      "type" : "note"
+    },
+    {
+      "bounds" : [
+        300,
+        420,
+        160.25,
+        22
+      ],
+      "color" : [
+        0,
+        0,
+        0,
+        1
+      ],
+      "createdAt" : "2026-11-04T09:00:00.125Z",
+      "expanded" : "\\frac{1}{2}\\mathbb{R}^n + \\left\\|x\\right\\|",
+      "fontSize" : 16,
+      "id" : "3A000000-0000-4000-8000-000000000005",
+      "modifiedAt" : "2026-11-04T09:05:30.750Z",
+      "pageIndex" : 2,
+      "source" : "\\half\\R^n + \\norm{x}",
+      "type" : "latex"
+    },
+    {
+      "bounds" : [
+        72,
+        300,
+        110,
+        36.5
+      ],
+      "color" : [
+        0.2,
+        0.4,
+        0.9,
+        1
+      ],
+      "createdAt" : "2026-11-04T09:00:00.125Z",
+      "fontSize" : 13,
+      "id" : "3A000000-0000-4000-8000-000000000006",
+      "modifiedAt" : "2026-11-04T09:00:00.125Z",
+      "pageIndex" : 3,
+      "text" : "Exam question\nsee lecture 7",
+      "type" : "textbox"
+    }
+  ],
+  "documentHash" : "5e4d3c2b1a09f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a392817060",
+  "fileNameHint" : "stochastic-calculus.pdf",
+  "pageCount" : 4,
+  "pathHint" : "/Users/someone/Courses/problem-set.pdf",
+  "revision" : 34,
+  "savedAt" : "2026-11-06T10:15:00.000Z"
+}}

@@ -42,7 +42,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             guard let action else { return event }
             let handled = MainActor.assumeIsolated {
-                if SaveCoordinator.shared.isChangingPages { return true }
+                if OpenDocuments.shared.isChangingPages { return true }
                 // the menu handles its own shortcuts
                 if key == "z", modifiers.contains(.command) { return false }
                 _ = NSApp.sendAction(Selector(action), to: nil, from: nil)
@@ -52,24 +52,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// Quitting waits until every document's annotations are on disk.
+    /// Quitting asks about unsaved LaTeX commands, then waits until exports
+    /// are done and every document's annotations are on disk.
     func applicationShouldTerminate(_ sender: NSApplication)
         -> NSApplication.TerminateReply
     {
+        guard LaTeXCommandsWindow.shared.confirmClosing() else {
+            return .terminateCancel
+        }
         Task {
-            await SaveCoordinator.shared.flushAll()
+            await OpenDocuments.shared.flushAll()
             NSApp.reply(
-                toApplicationShouldTerminate: SaveCoordinator.shared
+                toApplicationShouldTerminate: OpenDocuments.shared
                     .confirmQuitIfAnythingUnsaved())
         }
         return .terminateLater
     }
 
+    func applicationDidBecomeActive(_ notification: Notification) {
+        OpenDocuments.shared.checkFiles()
+    }
+
     func applicationDidResignActive(_ notification: Notification) {
-        SaveCoordinator.shared.flushAllInBackground()
+        OpenDocuments.shared.flushAllInBackground()
     }
 
     func applicationDidHide(_ notification: Notification) {
-        SaveCoordinator.shared.flushAllInBackground()
+        OpenDocuments.shared.flushAllInBackground()
     }
 }
