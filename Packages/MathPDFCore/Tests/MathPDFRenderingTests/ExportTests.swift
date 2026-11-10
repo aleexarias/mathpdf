@@ -68,7 +68,7 @@ struct ExportTests {
 
         let first = try #require(document.page(at: 0)).annotations
         let highlights = first.filter { $0.type == "Highlight" }
-        // the two lines are one highlight, as PDF editors make them
+        // the two lines are one highlight
         #expect(highlights.count == 1)
         #expect(highlights.first?.quadrilateralPoints?.count == 8)
         #expect(

@@ -39,10 +39,10 @@ public enum AnnotationMarks {
         }
     }
 
-    /// A highlight or underline over one or more lines, as one annotation (one
-    /// quadrilateral per line), the way PDF editors make a multi-line
-    /// highlight. The corners go in the order they have on screen, which is
-    /// what puts an underline under the text on a rotated page.
+    /// A highlight or underline over one or more lines, as one annotation with
+    /// a quadrilateral per line. The corners go in the order they have on
+    /// screen, which is what puts an underline under the text on a rotated
+    /// page.
     static func markup(
         _ type: PDFAnnotationSubtype, _ lines: [CGRect], _ color: NSColor,
         pageRotation: Int = 0

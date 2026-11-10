@@ -2,8 +2,8 @@ import Foundation
 import MathPDFCore
 import Observation
 
-/// The palette colours ⌥⇥ switches a highlight or underline between, as
-/// ticked in Settings. One choice for every window, kept between launches.
+/// The palette colours ⌥⇥ cycles through. Shared by all windows and kept in
+/// user defaults.
 @MainActor @Observable
 final class ColorRotation {
     static let shared = ColorRotation()

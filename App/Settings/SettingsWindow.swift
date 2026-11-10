@@ -1,10 +1,8 @@
 import AppKit
 import SwiftUI
 
-/// The Settings window: the user's own LaTeX commands, and the colours ⌥⇥
-/// switches between. The rest of the app waits until it's closed. The
-/// commands are only saved when the user says so, so closing it asks first,
-/// however it's closed; the colours apply as they're ticked.
+/// The modal Settings window. LaTeX commands are only saved on request, so
+/// closing it, however that happens, asks about unsaved changes first.
 @MainActor
 final class SettingsWindow: NSObject, NSWindowDelegate {
     static let shared = SettingsWindow()

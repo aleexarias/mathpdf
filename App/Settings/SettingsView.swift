@@ -4,7 +4,6 @@ enum SettingsTab: Hashable {
     case latexCommands, colors
 }
 
-/// What's in the Settings window, one tab per kind of setting.
 struct SettingsView: View {
     @State var tab: SettingsTab
     let library: LaTeXCommandLibrary
@@ -24,8 +23,7 @@ struct SettingsView: View {
     }
 }
 
-/// Which colours ⌥⇥ switches between. A tick applies at once, in every
-/// window, and is kept between launches.
+/// Unlike the LaTeX commands, these apply as soon as they're ticked.
 struct ColorSettings: View {
     let close: () -> Void
 

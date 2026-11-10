@@ -350,10 +350,8 @@ final class AnnotationPDFView: PDFView {
         if editor?.isSettingWidth == true { NSCursor.resizeLeftRight.set() }
     }
 
-    /// PDFKit picks the pointer for what's under it, but only when that
-    /// changes: a pointer left as an I-beam (by the editor's text, say) stays
-    /// one over a formula or text box. So the pointer over them is set here,
-    /// on every move.
+    /// PDFKit only updates the pointer when what's under it changes, so an
+    /// I-beam left by a text field would persist over a formula or text box.
     override func mouseMoved(with event: NSEvent) {
         super.mouseMoved(with: event)
         guard let editor, let (page, point) = location(of: event) else {
@@ -395,8 +393,8 @@ final class AnnotationPDFView: PDFView {
         switch event.specialKey {
         case .delete?, .deleteForward?:
             handled = editor?.deleteSelection() ?? false
-        // ⌥⇥ and ⌥⇧⇥, for when the menu doesn't take them: ⇧⇥ arrives as
-        // back-tab, which a menu shortcut for Tab may not match.
+        // Backs up the menu's ⌥⇥ and ⌥⇧⇥: ⇧⇥ arrives as back-tab, which a
+        // Tab key equivalent may not match.
         case let key?
         where (key == .tab || key == .backTab)
             && modifiers.subtracting(.shift) == .option:

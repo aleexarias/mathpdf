@@ -20,8 +20,7 @@ struct PDFKitView: NSViewRepresentable {
 
 /// The toolbar search field. A native NSSearchField rather than a SwiftUI
 /// TextField: in a toolbar, SwiftUI's focus handling and focus ring don't keep
-/// up when the toolbar resizes, while this one behaves like other Mac apps
-/// (Esc and the clear button empty it).
+/// up when the toolbar resizes.
 struct SearchField: NSViewRepresentable {
     let viewer: Viewer
 

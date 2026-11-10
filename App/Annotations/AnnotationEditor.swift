@@ -233,9 +233,9 @@ final class AnnotationEditor: NSObject {
         }
     }
 
-    /// ⌥⇥, or ⌥⇧⇥ backwards: the next colour in the rotation for the
-    /// selected highlight or underline, or else for the highlighter or
-    /// underliner that's on. Anything else beeps.
+    /// Moves the selected highlight or underline, or else the highlighter or
+    /// underliner that's on, to the next colour in the rotation. Beeps if
+    /// there's nothing of either.
     func cycleColor(backwards: Bool) {
         let selected = session.selectedAnnotations.first?.kind
         guard session.canEdit,
@@ -371,9 +371,7 @@ final class AnnotationEditor: NSObject {
 
     /// The page at the centre of what's on screen, or the nearest if that's
     /// between pages. Whatever is being written makes way: it's kept if it's
-    /// valid, and otherwise given up on without asking. The tool that's on
-    /// stays on: the page takes no clicks while the new item's editor is
-    /// open, and the tool is there again once it closes.
+    /// valid, and otherwise given up on without asking.
     private func placeForNewItem() -> (
         page: PDFPage, index: Int, centre: CGPoint
     )? {
@@ -541,15 +539,13 @@ final class AnnotationEditor: NSObject {
             atRightEdge: point, pageIndex: document.index(for: page)) != nil
     }
 
-    /// Whether `point` is on a note, formula or text box, where the pointer
-    /// is an arrow.
+    /// Whether `point` is on a note, formula or text box.
     func isOnBox(_ point: CGPoint, on page: PDFPage) -> Bool {
         guard let document = pdfView.document else { return false }
         return box(at: point, pageIndex: document.index(for: page)) != nil
     }
 
-    /// The topmost note, formula or text box at `point`: the items clicked
-    /// and dragged as a whole rather than selected as text.
+    /// The topmost note, formula or text box at `point`.
     private func box(at point: CGPoint, pageIndex: Int) -> Annotation? {
         session.annotations.annotation(at: point, pageIndex: pageIndex) {
             switch $0.kind {

@@ -23,6 +23,7 @@ struct DocumentWindow: View {
             }
         }
         .frame(minWidth: 600, minHeight: 400)
+        .toolbarHiddenInFullScreen()
         .task {
             guard session == nil else { return }
             let session = DocumentSession(data: file.data, fileURL: fileURL)
@@ -178,6 +179,18 @@ private struct DocumentView: View {
         ToolbarItem {
             SearchField(viewer: viewer)
                 .frame(width: 160)
+        }
+    }
+}
+
+extension View {
+    /// The modifier needs macOS 15; on 14 the toolbar stays in full screen.
+    @ViewBuilder
+    fileprivate func toolbarHiddenInFullScreen() -> some View {
+        if #available(macOS 15, *) {
+            windowToolbarFullScreenVisibility(.onHover)
+        } else {
+            self
         }
     }
 }
