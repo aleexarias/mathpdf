@@ -35,16 +35,10 @@ final class ColorRotation {
             forKey: Self.key)
     }
 
-    /// The colour after `color`, or before it going backwards, in palette
-    /// order and wrapping round. One that isn't ticked goes to the first (or
-    /// last) that is. Nil if none are.
+    /// The colour after `color` among those ticked, in palette order (see
+    /// `cycling`).
     func color(after color: RGBAColor, backwards: Bool) -> RGBAColor? {
-        let colors = Palette.entries.filter(contains).map(\.color)
-        guard !colors.isEmpty else { return nil }
-        guard let index = colors.firstIndex(of: color) else {
-            return backwards ? colors.last : colors.first
-        }
-        let step = backwards ? colors.count - 1 : 1
-        return colors[(index + step) % colors.count]
+        Palette.entries.filter(contains).map(\.color).cycling(
+            from: color, backwards: backwards)
     }
 }

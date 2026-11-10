@@ -426,13 +426,13 @@ final class DocumentSession {
     }
 
     func finishTextBox(
-        _ id: UUID, text: String, fontSize: Double, size: CGSize, isNew: Bool,
-        within page: PageFrame? = nil
+        _ id: UUID, text: String, expanded: String, fontSize: Double,
+        size: CGSize, isNew: Bool, within page: PageFrame? = nil
     ) {
         apply(
             annotations.finishingTextBox(
-                id, text: text, fontSize: fontSize, size: size, isNew: isNew,
-                within: page))
+                id, text: text, expanded: expanded, fontSize: fontSize,
+                size: size, isNew: isNew, within: page))
     }
 
     func resizeTextBox(

@@ -84,9 +84,10 @@ final class EditorPopoverController: NSObject {
     func editTextBox(_ id: UUID, isNew: Bool) {
         guard tryToFinish() else { return }
         guard let box = annotation(id),
-            case .textBox(let text, let fontSize) = box.kind
+            case .textBox(let text, let fontSize, let expanded) = box.kind
         else { return }
-        let draft = TextBoxDraft(text: text, fontSize: fontSize)
+        let draft = TextBoxDraft(
+            text: text, fontSize: fontSize, expanded: expanded)
         present(
             TextBoxEditorView(draft: draft) { [weak self] in
                 self?.tryToFinish()
@@ -225,10 +226,15 @@ final class EditorPopoverController: NSObject {
                 isNew: current.isNew, within: pageFrame(of: current.id))
         case .textBox(let draft):
             textFontSize = draft.fontSize
+            let expanded =
+                (try? draft.expansion(
+                    using: Persistence.latexCommands.current)) ?? draft.text
             session.finishTextBox(
-                current.id, text: draft.text, fontSize: draft.fontSize,
+                current.id, text: draft.text, expanded: expanded,
+                fontSize: draft.fontSize,
                 size: textBoxSize(
-                    of: draft, id: current.id, isNew: current.isNew),
+                    of: expanded, fontSize: draft.fontSize, id: current.id,
+                    isNew: current.isNew),
                 isNew: current.isNew, within: pageFrame(of: current.id))
         case .latex(let draft):
             if current.isNew {  // empty: removed
@@ -242,22 +248,21 @@ final class EditorPopoverController: NSObject {
 
     /// A new text box is as wide as its longest line, up to the page's width
     /// less half-inch margins. An existing one keeps its width, which only
-    /// dragging its edge changes, and its text wraps to it. All as seen on
-    /// screen.
-    private func textBoxSize(of draft: TextBoxDraft, id: UUID, isNew: Bool)
-        -> CGSize
-    {
+    /// dragging its edge changes, and its text wraps to it. Either is at least
+    /// as wide as its widest formula. All as seen on screen; `text` is as
+    /// drawn.
+    private func textBoxSize(
+        of text: String, fontSize: Double, id: UUID, isNew: Bool
+    ) -> CGSize {
         let frame = pageFrame(of: id)
+        let layout = TextBoxLayout(text, fontSize: fontSize)
         if !isNew, let size = annotation(id)?.bounds.size {
-            return TextBoxStyle.size(
-                of: draft.text, fontSize: draft.fontSize,
-                width: frame?.turned(size).width ?? size.width)
+            let width = frame?.turned(size).width ?? size.width
+            return layout.size(width: max(width, layout.minimumWidth))
         }
-        let widest = max(
-            TextBoxStyle.minimumWidth(fontSize: draft.fontSize),
-            (frame?.shownSize.width ?? 612) - 72)
-        return TextBoxStyle.size(
-            of: draft.text, fontSize: draft.fontSize, maxWidth: widest)
+        return layout.size(
+            maxWidth: max(
+                layout.minimumWidth, (frame?.shownSize.width ?? 612) - 72))
     }
 
     /// The page an annotation is on, as shown, so a formula or text box that

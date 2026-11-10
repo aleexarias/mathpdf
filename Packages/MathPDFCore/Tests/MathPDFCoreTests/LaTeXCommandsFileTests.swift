@@ -60,6 +60,26 @@ struct LaTeXCommandsFileTests {
         #expect(edit.annotations[0].kind == .latex(source: "x", fontSize: 16))
     }
 
+    @Test(arguments: [
+        (
+            #"In $\R^n$"#, #"In $\mathbb{R}^n$"#,
+            Optional(#"In $\mathbb{R}^n$"#)
+        ),
+        ("x", "x", nil),
+    ])
+    func aTextBoxKeepsWhatItsFormulasExpandedTo(
+        text: String, expanded: String, kept: String?
+    ) throws {
+        let begun = formula(.textBox(text: "", fontSize: 14))
+        let edit = try #require(
+            [begun].finishingTextBox(
+                begun.id, text: text, expanded: expanded, fontSize: 14,
+                size: CGSize(width: 60, height: 20), isNew: true))
+        #expect(
+            edit.annotations[0].kind
+                == .textBox(text: text, fontSize: 14, expanded: kept))
+    }
+
     @Test func aFormulaLeftAloneIsNoEdit() {
         let entered = formula(
             .latex(source: #"\R"#, fontSize: 16, expanded: #"\mathbb{R}"#))
@@ -78,13 +98,20 @@ struct LaTeXCommandsFileTests {
                         source: #"\R"#, fontSize: 16, expanded: #"\mathbb{R}"#)
                 ),
                 formula(.latex(source: "x", fontSize: 16)),
+                formula(
+                    .textBox(
+                        text: #"In $\R^n$"#, fontSize: 14,
+                        expanded: #"In $\mathbb{R}^n$"#)),
+                formula(.textBox(text: "Plain", fontSize: 14)),
             ])
         let data = try StoreFile.encode(set)
         #expect(try StoreFile.decode(data).set.annotations == set.annotations)
         let occurrences =
             String(decoding: data, as: UTF8.self)
             .components(separatedBy: "\"expanded\"").count - 1
-        #expect(occurrences == 1)
-        #expect(try StoreFile.decode(data).schemaVersion == 4)
+        #expect(occurrences == 2)
+        #expect(
+            try StoreFile.decode(data).schemaVersion
+                == StoreFile.currentSchemaVersion)
     }
 }

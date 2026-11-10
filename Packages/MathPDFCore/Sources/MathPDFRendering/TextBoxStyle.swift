@@ -1,4 +1,5 @@
 import AppKit
+import MathPDFLaTeX
 import PDFKit
 
 /// How a text box looks: Helvetica (one of the fonts every PDF reader has),
@@ -17,17 +18,19 @@ public enum TextBoxStyle {
     /// little slack so PDFKit doesn't wrap a line that only just fits.
     static let horizontalRoom = 2 * inset + 2
 
-    /// The narrowest a text box can be made: a couple of characters.
-    public static func minimumWidth(fontSize: Double) -> CGFloat {
-        2 * CGFloat(fontSize) + horizontalRoom
-    }
-
-    /// The box for `text`. Given a `width`, the text wraps to it and only the
-    /// height follows the text. Without one, the box is as wide as the longest
-    /// line, up to `maxWidth`, wrapping beyond that.
+    /// See `TextBoxLayout.size`.
+    @MainActor
     public static func size(
         of text: String, fontSize: Double, width: CGFloat? = nil,
         maxWidth: CGFloat = .infinity
+    ) -> CGSize {
+        TextBoxLayout(text, fontSize: fontSize).size(
+            width: width, maxWidth: maxWidth)
+    }
+
+    /// As PDFKit lays out a FreeText.
+    fileprivate static func plainSize(
+        of text: String, fontSize: Double, width: CGFloat?, maxWidth: CGFloat
     ) -> CGSize {
         let font = font(ofSize: fontSize)
         let boxWidth =
@@ -70,5 +73,40 @@ public enum TextBoxStyle {
         // a final line break starts an empty line
         if text.last?.isNewline == true { lines += 1 }
         return max(lines, 1)
+    }
+}
+
+/// A text box's text, measured once and then sized at any width. `text` is as
+/// it's drawn, with the user's commands expanded in its formulas.
+@MainActor
+public struct TextBoxLayout {
+    private let text: String
+    private let fontSize: Double
+    private let math: MathText?
+
+    public init(_ text: String, fontSize: Double) {
+        self.text = text
+        self.fontSize = fontSize
+        math =
+            InlineMath.containsMath(text)
+            ? MathText(text, fontSize: fontSize, color: .black) : nil
+    }
+
+    /// The narrowest the box can be made: a couple of characters, or its
+    /// widest formula.
+    public var minimumWidth: CGFloat {
+        max(2 * CGFloat(fontSize), math?.widestFormula ?? 0)
+            + TextBoxStyle.horizontalRoom
+    }
+
+    /// Given a `width`, the text wraps to it and only the height follows the
+    /// text. Without one, the box is as wide as the longest line, up to
+    /// `maxWidth`, wrapping beyond that.
+    public func size(width: CGFloat? = nil, maxWidth: CGFloat = .infinity)
+        -> CGSize
+    {
+        math?.boxSize(width: width, maxWidth: maxWidth)
+            ?? TextBoxStyle.plainSize(
+                of: text, fontSize: fontSize, width: width, maxWidth: maxWidth)
     }
 }

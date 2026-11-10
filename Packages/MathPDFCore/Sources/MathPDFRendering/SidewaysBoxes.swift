@@ -38,11 +38,10 @@ public enum SidewaysBoxes {
                 + abs(bounds.height - size.height)
                 < abs(bounds.width - size.height)
                 + abs(bounds.height - size.width)
-        case let .textBox(text, fontSize):
-            let asSaved = TextBoxStyle.size(
-                of: text, fontSize: fontSize, width: bounds.width)
-            let turned = TextBoxStyle.size(
-                of: text, fontSize: fontSize, width: bounds.height)
+        case let .textBox(text, fontSize, expanded):
+            let layout = TextBoxLayout(expanded ?? text, fontSize: fontSize)
+            let asSaved = layout.size(width: bounds.width)
+            let turned = layout.size(width: bounds.height)
             return abs(asSaved.height - bounds.height)
                 < abs(turned.height - bounds.width)
         case .highlight, .underline, .note:

@@ -70,19 +70,18 @@ final class AnnotationEditor: NSObject {
         let id: UUID
         let mark: PDFAnnotation
         let start: CGRect
-        let text: String
-        let fontSize: Double
+        let layout: TextBoxLayout
         /// From the narrowest a box can be to the page's right edge.
         let widths: ClosedRange<CGFloat>
         let frame: PageFrame
 
+        @MainActor
         func bounds(movedBy offset: CGSize) -> CGRect {
             let shown = frame.shown(start)
             let wanted = shown.width + frame.shown(offset).width
             let width = min(
                 max(wanted, widths.lowerBound), widths.upperBound)
-            let size = TextBoxStyle.size(
-                of: text, fontSize: fontSize, width: width)
+            let size = layout.size(width: width)
             return frame.onPage(
                 CGRect(
                     x: shown.minX, y: shown.maxY - size.height,
@@ -448,17 +447,17 @@ final class AnnotationEditor: NSObject {
         at point: CGPoint, on page: PDFPage, pageIndex: Int
     ) -> Bool {
         guard let box = textBox(atRightEdge: point, pageIndex: pageIndex),
-            case .textBox(let text, let fontSize) = box.kind,
+            case .textBox(let text, let fontSize, let expanded) = box.kind,
             let mark = renderer.marks(ofItem: box.itemID).first
         else { return false }
         session.select(box.itemID)
         let frame = pdfView.pageFrame(of: page)
-        let narrowest = TextBoxStyle.minimumWidth(fontSize: fontSize)
+        let layout = TextBoxLayout(expanded ?? text, fontSize: fontSize)
+        let narrowest = layout.minimumWidth
         let toPageEdge = frame.shownSize.width - frame.shown(box.bounds).minX
         gesture = .setWidth(
             WidthChange(
-                id: box.id, mark: mark, start: box.bounds, text: text,
-                fontSize: fontSize,
+                id: box.id, mark: mark, start: box.bounds, layout: layout,
                 widths: narrowest...max(narrowest, toPageEdge), frame: frame))
         return true
     }

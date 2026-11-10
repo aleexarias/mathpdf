@@ -118,8 +118,8 @@ final class AnnotationRenderer {
             let selected = entry.annotation.itemID == session.selection
             guard selected != entry.isShownSelected else { continue }
             for (mark, color) in entry.marks {
-                if let formula = mark as? LaTeXAnnotation {
-                    formula.isSelected = selected
+                if let drawn = mark as? UprightAnnotation {
+                    drawn.isSelected = selected
                 } else if case .textBox = entry.annotation.kind {
                     // the box's background, not the text
                     mark.color = selected ? Self.selectionTint : color

@@ -21,23 +21,19 @@ final class LaTeXDraft {
     /// The last try to finish, so one click that reaches both the popover and
     /// the page counts once.
     @ObservationIgnored var lastAttempt: TimeInterval?
-    /// The text when the editor opened, and what it expanded to then.
-    @ObservationIgnored private let entered: (source: String, expanded: String)
+    @ObservationIgnored private let entered: EnteredExpansion
 
     init(source: String, fontSize: Double, expanded: String? = nil) {
         self.source = source
         self.fontSize = fontSize
-        entered = (source, expanded ?? source)
+        entered = EnteredExpansion(text: source, expanded: expanded)
     }
 
-    /// What's drawn for the text as it is now. A formula only expands again
-    /// if its text changed: otherwise it keeps what it was entered with,
-    /// whatever has happened to the commands since.
+    /// What's drawn for the source as it is now.
     func expansion(using commands: LaTeXCommands) throws(LaTeXProblem)
         -> String
     {
-        guard source != entered.source else { return entered.expanded }
-        return try commands.expansion(of: source)
+        try entered.expansion(of: source, commands.expansion(of:))
     }
 
     func show(error: String) {

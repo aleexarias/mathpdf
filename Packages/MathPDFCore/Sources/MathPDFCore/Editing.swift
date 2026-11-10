@@ -175,11 +175,14 @@ extension [Annotation] {
     /// Like `finishingLaTeX`: `size` is the size the text needs, and an empty
     /// text box is deleted.
     public func finishingTextBox(
-        _ id: UUID, text: String, fontSize: Double, size: CGSize, isNew: Bool,
-        within page: PageFrame? = nil
+        _ id: UUID, text: String, expanded: String? = nil, fontSize: Double,
+        size: CGSize, isNew: Bool, within page: PageFrame? = nil
     ) -> AnnotationEdit? {
         finishing(
-            id, as: .textBox(text: text, fontSize: fontSize),
+            id,
+            as: .textBox(
+                text: text, fontSize: fontSize,
+                expanded: expanded == text ? nil : expanded),
             isEmpty: text.isBlank, size: size, page: page, isNew: isNew,
             noun: "Text")
     }

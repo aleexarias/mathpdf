@@ -77,7 +77,7 @@ struct AnnotationList: View {
             return text.isEmpty ? "(empty note)" : text
         case .latex(let source, _, _):
             return source
-        case .textBox(let text, _):
+        case .textBox(let text, _, _):
             return text
         }
     }

@@ -189,6 +189,29 @@ struct LaTeXCommandsTests {
         #expect(try twice.expansion(of: #"\R"#) == "R")
     }
 
+    @Test func aTextBoxExpandsOnlyItsFormulas() throws {
+        let commands = LaTeXCommands(definitions: real)
+        #expect(
+            try commands.expansion(ofFormulasIn: #"\R in $\R^n$ costs \$1"#)
+                == #"\R in $\mathbb{R}^n$ costs \$1"#)
+    }
+
+    /// What was entered keeps its expansion until it's changed, whatever the
+    /// commands are now.
+    @Test func anUnchangedTextKeepsWhatItExpandedTo() throws {
+        let entered = EnteredExpansion(text: #"\R"#, expanded: #"\mathbb{R}"#)
+        let commands = LaTeXCommands(definitions: #"\def\R{R}"#)
+        #expect(
+            try entered.expansion(of: #"\R"#, commands.expansion(of:))
+                == #"\mathbb{R}"#)
+        #expect(
+            try entered.expansion(of: #"\R^2"#, commands.expansion(of:))
+                == "R^2")
+        #expect(
+            try EnteredExpansion(text: "x", expanded: nil).expansion(
+                of: "x", commands.expansion(of:)) == "x")
+    }
+
     // MARK: With typesetting
 
     @Test func aCommandThatCantBeTypesetIsFlagged() {

@@ -32,9 +32,10 @@ public enum AnnotationMarks {
                 bounds: annotation.bounds, source: source, expanded: expanded,
                 fontSize: fontSize, color: color, pageRotation: pageRotation)
             return [(formula, color)]
-        case let .textBox(text, fontSize):
+        case let .textBox(text, fontSize, expanded):
             let box = textBox(
-                annotation, text: text, fontSize: fontSize, color: color)
+                annotation, text: text, fontSize: fontSize, expanded: expanded,
+                color: color, pageRotation: pageRotation)
             return [(box, .clear)]
         }
     }
@@ -76,13 +77,18 @@ public enum AnnotationMarks {
         return icon
     }
 
-    /// A text box: a standard PDF FreeText annotation, so other apps can edit
-    /// its text. Its colour is the text's; the box itself is clear (it's
-    /// tinted while selected).
+    /// A text box. Plain text is a standard PDF FreeText annotation, so other
+    /// apps can edit it: its colour is the text's, and the box itself is clear
+    /// (it's tinted while selected). Text with formulas is drawn by mathpdf.
     static func textBox(
         _ annotation: Annotation, text: String, fontSize: Double,
-        color: NSColor
+        expanded: String?, color: NSColor, pageRotation: Int
     ) -> PDFAnnotation {
+        if InlineMath.containsMath(expanded ?? text) {
+            return MathTextAnnotation(
+                bounds: annotation.bounds, text: text, expanded: expanded,
+                fontSize: fontSize, color: color, pageRotation: pageRotation)
+        }
         let box = PDFAnnotation(
             bounds: annotation.bounds, forType: .freeText, withProperties: nil)
         box.contents = text

@@ -181,6 +181,14 @@ public struct LaTeXCommands: Equatable, Sendable {
 
     // MARK: Expanding
 
+    /// `text` with these commands replaced in its formulas, those between `$`
+    /// signs.
+    public func expansion(ofFormulasIn text: String) throws(LaTeXProblem)
+        -> String
+    {
+        try InlineMath.mappingMath(text, expansion(of:))
+    }
+
     /// `source` with these commands replaced by their definitions. Commands
     /// that aren't here are left for typesetting, which says if it doesn't
     /// know them.

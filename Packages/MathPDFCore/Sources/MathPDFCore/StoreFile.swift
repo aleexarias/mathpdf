@@ -3,7 +3,7 @@ import Foundation
 
 /// The on-disk format shared by `store.json` and every snapshot:
 ///
-///     {"schemaVersion":4,"sha256":"<hex>","payload":{ …AnnotationSet… }}
+///     {"schemaVersion":5,"sha256":"<hex>","payload":{ …AnnotationSet… }}
 ///
 /// The checksum covers the exact payload bytes as written, so checking it
 /// never depends on re-encoding. The payload is always the last key, which
@@ -20,8 +20,10 @@ import Foundation
 /// - 4: a formula can carry `expanded`, its source with the user's own
 ///   commands replaced. A v3 payload is a valid v4 payload, and an app that
 ///   only knows v3 refuses v4 files rather than draw and save them without it.
+/// - 5: a text box can carry `expanded` too, for the formulas in its text. A
+///   v4 payload is a valid v5 payload.
 enum StoreFile {
-    static let currentSchemaVersion = 4
+    static let currentSchemaVersion = 5
 
     struct Decoded: Sendable {
         var set: AnnotationSet
@@ -71,7 +73,7 @@ enum StoreFile {
                 return Decoded(
                     set: try MigrationV1.migrate(
                         payload, using: makeDecoder()), schemaVersion: 1)
-            case 2, 3, 4:
+            case 2, 3, 4, 5:
                 return Decoded(
                     set: try makeDecoder().decode(
                         AnnotationSet.self, from: payload),

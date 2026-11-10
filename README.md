@@ -20,7 +20,9 @@ pull request.
   the middle of the view, type `\frac{a}{b}`, `\sum_{n=1}^\infty`,
   `\begin{pmatrix}…\end{pmatrix}` and so on, and drag it where you want it.
 - **Text boxes**: press Text (⌃⌘T) to add one in the middle of the view. Drag
-  to move it, and drag its right edge to set how wide its lines wrap.
+  to move it, and drag its right edge to set how wide its lines wrap. LaTeX
+  between `$` signs, as in `the norm $\|x\|_2$`, is typeset in the text (`\$`
+  is a dollar sign), and a box is never narrower than its widest formula.
 - **Pages**: drag thumbnails in the sidebar to reorder pages, or onto another
   open PDF's sidebar to copy them there. Cut, copy, paste and delete work
   too, on one page or several (⌘- or ⇧-click), and annotations go with their
@@ -32,7 +34,8 @@ pull request.
   today's annotations on them.
 - **Export** an annotated copy that Preview, Acrobat and other PDF apps can
   show and edit, or **Quick Export** it to `<name>_annotated.pdf` next to the
-  original.
+  original. Formulas, and text boxes with formulas, go in as images; other text
+  boxes stay editable text.
 
 ### Annotations never change your PDF
 
@@ -105,9 +108,10 @@ is saved. The rest of the app waits until you close the window, with Close, ⌘W
 or its close button. Closing or quitting with unsaved changes asks what to do
 with them.
 
-A formula is drawn with the commands as they were when you entered it, so
-changing or deleting a command never changes formulas you've already written.
-They pick up the current commands when you edit their text.
+Your commands work in text boxes' formulas too. A formula, or a text box, is
+drawn with the commands as they were when you entered it, so changing or
+deleting a command never changes what you've already written. It picks up the
+current commands when you edit its text.
 
 The commands are stored as plain text in `latex-commands.tex`, in the data
 folder, so you can back them up or edit them in another editor. Edits made

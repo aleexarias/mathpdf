@@ -1,14 +1,14 @@
 import AppKit
 import MathPDFCore
-import MathPDFLaTeX
 import PDFKit
 
 /// Writes a copy of a PDF with mathpdf's annotations in it, for other apps.
 /// The original's pages, links and annotations are kept as they are; ours are
 /// added as standard PDF annotations: highlights and underlines (one per item,
-/// however many lines), sticky notes, and each LaTeX formula as a stamp that
-/// carries its drawing, so other editors can show it and move it like an
-/// image. The original file is never written to.
+/// however many lines), sticky notes, text boxes as editable text, and each
+/// formula, or text box with formulas, as a stamp that carries its drawing, so
+/// other editors can show it and move it like an image. The original file is
+/// never written to.
 @MainActor
 public enum PDFExporter {
     public enum Failure: LocalizedError, Equatable {
@@ -155,20 +155,11 @@ public enum PDFExporter {
                         AnnotationMarks.noteIcon(
                             annotation, text: text, color: color)
                     ))
-            case let .textBox(text, fontSize):
-                marks.append(
-                    (
-                        annotation.pageIndex,
-                        AnnotationMarks.textBox(
-                            annotation, text: text, fontSize: fontSize,
-                            color: color)
-                    ))
-            case let .latex(source, fontSize, expanded):
-                let formula = LaTeXAnnotation(
-                    bounds: annotation.bounds, source: source,
-                    expanded: expanded, fontSize: fontSize, color: color,
-                    pageRotation: rotation(annotation.pageIndex))
-                marks.append((annotation.pageIndex, formula))
+            case .textBox, .latex:
+                marks += AnnotationMarks.marks(
+                    for: annotation,
+                    pageRotation: rotation(annotation.pageIndex)
+                ).map { (annotation.pageIndex, $0.mark) }
             }
         }
         return marks

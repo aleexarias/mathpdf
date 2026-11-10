@@ -114,6 +114,25 @@ struct ExportTests {
         #expect(try darkPixels(on: page, in: half.bounds) > 0)
     }
 
+    /// Other apps see a text box with formulas as an image, and the text as
+    /// typed as its contents.
+    @Test func aTextBoxWithFormulasIsExportedAsAStamp() throws {
+        let box = Annotation(
+            kind: .textBox(
+                text: #"So $\half$ of it"#, fontSize: 14,
+                expanded: #"So $\frac{1}{2}$ of it"#),
+            pageIndex: 0,
+            bounds: CGRect(x: 100, y: 300, width: 120, height: 40),
+            color: black)
+        let exported = try PDFExporter.annotatedPDF(
+            original: Self.makePDF(pages: 1), annotations: [box])
+        let page = try #require(PDFDocument(data: exported)?.page(at: 0))
+        #expect(page.annotations.map(\.type) == ["Stamp"])
+        #expect(page.annotations.first?.contents == #"So $\half$ of it"#)
+        #expect(try darkPixels(on: page, in: box.bounds) > 0)
+        #expect(String(decoding: exported, as: UTF8.self).contains("/AP"))
+    }
+
     /// As in the viewer and the version browser.
     @Test func aMarkDrawsWhatTheFormulaExpandedTo() throws {
         let document = try #require(PDFDocument(data: Self.makePDF(pages: 1)))

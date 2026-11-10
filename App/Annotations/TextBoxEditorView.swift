@@ -1,3 +1,4 @@
+import MathPDFLaTeX
 import Observation
 import SwiftUI
 
@@ -7,10 +8,19 @@ import SwiftUI
 final class TextBoxDraft {
     var text: String
     var fontSize: Double
+    @ObservationIgnored private let entered: EnteredExpansion
 
-    init(text: String, fontSize: Double) {
+    init(text: String, fontSize: Double, expanded: String? = nil) {
         self.text = text
         self.fontSize = fontSize
+        entered = EnteredExpansion(text: text, expanded: expanded)
+    }
+
+    /// What's drawn for the text as it is now: its formulas expanded.
+    func expansion(using commands: LaTeXCommands) throws(LaTeXProblem)
+        -> String
+    {
+        try entered.expansion(of: text, commands.expansion(ofFormulasIn:))
     }
 }
 

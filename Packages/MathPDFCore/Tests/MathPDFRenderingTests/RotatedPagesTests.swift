@@ -302,13 +302,16 @@ struct RotatedPagesTests {
         #expect(abs(fromBottom / Self.scale - 300) < 10)
     }
 
-    /// PDFKit turns a text box's text upright by itself, given the right
-    /// bounds.
-    @Test(arguments: [0, 90, 180, 270])
-    func aTextBoxStaysOnOneLine(rotation: Int) {
+    /// PDFKit turns a plain text box's text upright by itself, given the right
+    /// bounds; one with formulas is turned like a formula.
+    @Test(
+        arguments: [0, 90, 180, 270],
+        [
+            "a long line of words", "a long line with $x^2 + y^2$",
+        ])
+    func aTextBoxStaysOnOneLine(rotation: Int, text: String) {
         let page = document(rotation: rotation).page(at: 0)!
         let frame = PageFrame(box: Self.pageBox, rotation: rotation)
-        let text = "a long line of words"
         let size = TextBoxStyle.size(of: text, fontSize: 18)
         let annotation = Annotation(
             kind: .textBox(text: text, fontSize: 18), pageIndex: 0,

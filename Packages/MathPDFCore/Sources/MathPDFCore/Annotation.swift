@@ -17,8 +17,11 @@ public struct Annotation: Identifiable, Equatable, Sendable {
         /// once when it's entered and drawn from then on, so changing a
         /// command later doesn't alter the formula. Nil if it used none.
         case latex(source: String, fontSize: Double, expanded: String? = nil)
-        /// Plain text placed on the page, drawn in Helvetica at `fontSize`.
-        case textBox(text: String, fontSize: Double)
+        /// Text placed on the page, drawn in Helvetica at `fontSize`, with
+        /// LaTeX between `$` signs typeset in place. `expanded` is the text
+        /// with the user's own commands replaced in its formulas, as for a
+        /// formula. Nil if it used none.
+        case textBox(text: String, fontSize: Double, expanded: String? = nil)
     }
 
     public var id: UUID
@@ -132,7 +135,7 @@ extension Annotation: Codable {
     private enum CodingKeys: String, CodingKey {
         case id, type, pageIndex, bounds, color, groupID, createdAt, modifiedAt
         case text, anchorRects  // note
-        // latex; a text box has text, fontSize
+        // latex; a text box has text, fontSize, expanded
         case source, fontSize, expanded
     }
 
@@ -170,7 +173,9 @@ extension Annotation: Codable {
         case "textbox":
             kind = .textBox(
                 text: try c.decode(String.self, forKey: .text),
-                fontSize: try c.decode(Double.self, forKey: .fontSize))
+                fontSize: try c.decode(Double.self, forKey: .fontSize),
+                expanded: try c.decodeIfPresent(
+                    String.self, forKey: .expanded))
         case "latex":
             kind = .latex(
                 source: try c.decode(String.self, forKey: .source),
@@ -203,10 +208,11 @@ extension Annotation: Codable {
             try c.encode("note", forKey: .type)
             try c.encode(text, forKey: .text)
             try c.encode(anchorRects.map(\.components), forKey: .anchorRects)
-        case let .textBox(text, fontSize):
+        case let .textBox(text, fontSize, expanded):
             try c.encode("textbox", forKey: .type)
             try c.encode(text, forKey: .text)
             try c.encode(fontSize, forKey: .fontSize)
+            try c.encodeIfPresent(expanded, forKey: .expanded)
         case let .latex(source, fontSize, expanded):
             try c.encode("latex", forKey: .type)
             try c.encode(source, forKey: .source)

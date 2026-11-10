@@ -138,9 +138,20 @@ enum Samples {
             createdAt: created)
     }
 
+    static func mathTextBox() -> Annotation {
+        Annotation(
+            kind: .textBox(
+                text: #"Since $\R^n$ costs \$1"#, fontSize: 14,
+                expanded: #"Since $\mathbb{R}^n$ costs \$1"#),
+            pageIndex: 0,
+            bounds: CGRect(x: 72, y: 500, width: 150.5, height: 30.25),
+            color: RGBAColor(red: 0, green: 0, blue: 0), createdAt: created)
+    }
+
     static func everyKind() -> [Annotation] {
         underlineLines() + [highlight(), pointNote(), selectionNote()]
             + trickyLaTeX.map(latex) + trickyLaTeX.map(textBox)
+            + [mathTextBox()]
     }
 }
 

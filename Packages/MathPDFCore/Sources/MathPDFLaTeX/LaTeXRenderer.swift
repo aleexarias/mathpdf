@@ -11,6 +11,20 @@ public enum LaTeXRenderer {
     public struct Typeset {
         let display: MTMathListDisplay
         public let size: CGSize
+        /// Height of the baseline above the bottom of the box.
+        public let baseline: CGFloat
+
+        /// Draws the formula with the bottom-left corner of its box at the
+        /// context's origin.
+        public func draw(in context: CGContext) {
+            LaTeXRenderer.draw(display, in: context)
+        }
+    }
+
+    /// `display` sets a formula on its own; `inline` sets it smaller and
+    /// tighter, to sit in a line of text, with no padding at its sides.
+    public enum Style: Sendable {
+        case display, inline
     }
 
     public enum Result {
@@ -36,17 +50,20 @@ public enum LaTeXRenderer {
     }
 
     public static func typeset(
-        _ source: String, fontSize: CGFloat, color: NSColor
+        _ source: String, fontSize: CGFloat, color: NSColor,
+        style: Style = .display
     ) -> Result {
-        let key = "\(fontSize) \(colorKey(color)) \(source)" as NSString
+        let key =
+            "\(style) \(fontSize) \(colorKey(color)) \(source)" as NSString
         if let cached = cache.object(forKey: key) { return cached.result }
-        let result = makeTypeset(source, fontSize: fontSize, color: color)
+        let result = makeTypeset(
+            source, fontSize: fontSize, color: color, style: style)
         cache.setObject(CachedResult(result), forKey: key)
         return result
     }
 
     private static func makeTypeset(
-        _ source: String, fontSize: CGFloat, color: NSColor
+        _ source: String, fontSize: CGFloat, color: NSColor, style: Style
     ) -> Result {
         guard !source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         else { return .empty }
@@ -62,11 +79,12 @@ public enum LaTeXRenderer {
         // SwiftMath's typesetter is only public through its label view, used
         // here off screen.
         let label = MTMathUILabel()
-        label.labelMode = .display
+        let sides = style == .inline ? 0 : padding
+        label.labelMode = style == .inline ? .text : .display
         label.fontSize = fontSize
         label.textColor = color
         label.contentInsets = NSEdgeInsets(
-            top: padding, left: padding, bottom: padding, right: padding)
+            top: padding, left: sides, bottom: padding, right: sides)
         label.latex = prepared
         if let error = label.error {
             return .invalid(message: message(for: error))
@@ -91,7 +109,14 @@ public enum LaTeXRenderer {
         if hasBlackboardLetters {
             BlackboardLetters.useAMSLetters(in: display)
         }
-        return .formula(Typeset(display: display, size: size))
+        // Where the label puts the baseline: it centres a formula shorter
+        // than half the font size. The display's position isn't public.
+        let height = display.ascent + display.descent
+        let baseline =
+            padding + display.descent + (height - max(height, fontSize / 2))
+            / 2
+        return .formula(
+            Typeset(display: display, size: size, baseline: baseline))
     }
 
     /// SwiftMath's own message, except that a command or environment it
@@ -159,7 +184,7 @@ public enum LaTeXRenderer {
         display.draw(context)
     }
 
-    nonisolated static func errorFont(fontSize: CGFloat) -> NSFont {
+    nonisolated public static func errorFont(fontSize: CGFloat) -> NSFont {
         .monospacedSystemFont(ofSize: max(8, fontSize * 0.7), weight: .regular)
     }
 }
