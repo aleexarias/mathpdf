@@ -13,7 +13,8 @@ pull request.
 
 ## Features
 
-- **Highlight and underline** text, in several colours.
+- **Highlight and underline** text, in several colours. Tick your favourites
+  in Settings > Colours (⌘,), and ⌥⇥ steps through them.
 - **Notes** attached to the text you select.
 - **LaTeX formulas** typeset right on the page. Press LaTeX (⌃⌘L) to add one in
   the middle of the view, type `\frac{a}{b}`, `\sum_{n=1}^\infty`,
@@ -119,6 +120,7 @@ there apply when you come back to mathpdf.
 | Highlighter, Underliner | ⌃⌘H, ⌃⌘U |
 | Note tool | ⌃⌘N |
 | New formula, new text box | ⌃⌘L, ⌃⌘T |
+| Next, previous highlight or underline colour | ⌥⇥, ⌥⇧⇥ |
 | Leave the current tool | Esc |
 | Finish editing a note, formula or text box | ⌘↩ or Esc |
 | Delete the selected annotation | Delete |
@@ -128,8 +130,8 @@ there apply when you come back to mathpdf.
 | Undo, Redo | ⌘Z, ⇧⌘Z (also ⌃Z, ⌘Y, ⌃Y) |
 | Save now | ⌘S |
 | Close the PDF | ⌘W |
-| Your LaTeX commands | ⌘, |
-| Save or close your LaTeX commands, in their window | ⌘S, ⌘W |
+| Settings: your LaTeX commands, and the colours ⌥⇥ uses | ⌘, |
+| Save your LaTeX commands, or close Settings | ⌘S, ⌘W |
 | Export…, Quick Export | ⇧⌘E, ⌥⇧⌘E |
 | Find, Find Next, Find Previous | ⌘F, ⌘G, ⇧⌘G |
 | Zoom In, Zoom Out, Actual Size, Zoom to Fit | ⌘+, ⌘−, ⌘0, ⌘9 |

@@ -1,27 +1,28 @@
 import AppKit
 import SwiftUI
 
-/// The window for the user's own LaTeX commands. The rest of the app waits
-/// until it's closed. What's in it is only saved when the user says so, so
-/// closing it asks first, however it's closed.
+/// The Settings window: the user's own LaTeX commands, and the colours ⌥⇥
+/// switches between. The rest of the app waits until it's closed. The
+/// commands are only saved when the user says so, so closing it asks first,
+/// however it's closed; the colours apply as they're ticked.
 @MainActor
-final class LaTeXCommandsWindow: NSObject, NSWindowDelegate {
-    static let shared = LaTeXCommandsWindow()
+final class SettingsWindow: NSObject, NSWindowDelegate {
+    static let shared = SettingsWindow()
 
     private var window: NSWindow?
 
-    /// Returns once the window is closed.
-    func show() {
+    /// Opens on `tab`. Returns once the window is closed.
+    func show(_ tab: SettingsTab = .latexCommands) {
         guard window == nil else { return }
-        let editor = LaTeXCommandsEditor(library: Persistence.latexCommands) {
-            [weak self] in self?.window?.performClose(nil)
-        }
-        let host = NSHostingController(rootView: editor)
-        // any size above the editor's minimum
+        let settings = SettingsView(
+            tab: tab, library: Persistence.latexCommands
+        ) { [weak self] in self?.window?.performClose(nil) }
+        let host = NSHostingController(rootView: settings)
+        // any size above the settings' minimum
         host.sizingOptions = [.minSize]
         let window = NSWindow(contentViewController: host)
         window.styleMask = [.titled, .closable, .resizable]
-        window.title = "LaTeX Commands"
+        window.title = "Settings"
         window.isReleasedWhenClosed = false
         window.delegate = self
         window.setContentSize(NSSize(width: 560, height: 440))

@@ -233,6 +233,21 @@ final class AnnotationEditor: NSObject {
         }
     }
 
+    /// ⌥⇥, or ⌥⇧⇥ backwards: the next colour in the rotation for the
+    /// selected highlight or underline, or else for the highlighter or
+    /// underliner that's on. Anything else beeps.
+    func cycleColor(backwards: Bool) {
+        let selected = session.selectedAnnotations.first?.kind
+        guard session.canEdit,
+            selected == nil || selected == .highlight
+                || selected == .underline,
+            let current = currentColor,
+            let next = ColorRotation.shared.color(
+                after: current, backwards: backwards)
+        else { return NSSound.beep() }
+        chooseColor(next)
+    }
+
     @discardableResult
     func deleteSelection() -> Bool {
         guard session.canEdit, let selection = session.selection else {
@@ -356,7 +371,9 @@ final class AnnotationEditor: NSObject {
 
     /// The page at the centre of what's on screen, or the nearest if that's
     /// between pages. Whatever is being written makes way: it's kept if it's
-    /// valid, and otherwise given up on without asking.
+    /// valid, and otherwise given up on without asking. The tool that's on
+    /// stays on: the page takes no clicks while the new item's editor is
+    /// open, and the tool is there again once it closes.
     private func placeForNewItem() -> (
         page: PDFPage, index: Int, centre: CGPoint
     )? {
@@ -370,7 +387,6 @@ final class AnnotationEditor: NSObject {
         guard let page = pdfView.page(for: centre, nearest: true),
             let document = pdfView.document
         else { return nil }
-        tool = nil
         session.select(nil)
         return (
             page, document.index(for: page), pdfView.convert(centre, to: page)
@@ -406,18 +422,10 @@ final class AnnotationEditor: NSObject {
         // With a tool on, only notes, formulas and text boxes take clicks.
         // Text under highlights, underlines and notes stays selectable, so it
         // can be marked again on top.
-        let annotations = session.annotations
-        let hit: Annotation?
-        if tool == nil {
-            hit = annotations.annotation(at: point, pageIndex: pageIndex)
-        } else {
-            hit = annotations.annotation(at: point, pageIndex: pageIndex) {
-                switch $0.kind {
-                case .note, .latex, .textBox: [$0.bounds]
-                case .highlight, .underline: []
-                }
-            }
-        }
+        let hit =
+            tool == nil
+            ? session.annotations.annotation(at: point, pageIndex: pageIndex)
+            : box(at: point, pageIndex: pageIndex)
         guard let hit else {
             // With a tool on, a click that deselects does only that; the next
             // click uses the tool.
@@ -531,6 +539,24 @@ final class AnnotationEditor: NSObject {
         else { return false }
         return textBox(
             atRightEdge: point, pageIndex: document.index(for: page)) != nil
+    }
+
+    /// Whether `point` is on a note, formula or text box, where the pointer
+    /// is an arrow.
+    func isOnBox(_ point: CGPoint, on page: PDFPage) -> Bool {
+        guard let document = pdfView.document else { return false }
+        return box(at: point, pageIndex: document.index(for: page)) != nil
+    }
+
+    /// The topmost note, formula or text box at `point`: the items clicked
+    /// and dragged as a whole rather than selected as text.
+    private func box(at point: CGPoint, pageIndex: Int) -> Annotation? {
+        session.annotations.annotation(at: point, pageIndex: pageIndex) {
+            switch $0.kind {
+            case .note, .latex, .textBox: [$0.bounds]
+            case .highlight, .underline: []
+            }
+        }
     }
 
     /// The topmost text box whose right edge on screen is within about 4

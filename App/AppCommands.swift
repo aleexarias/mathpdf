@@ -27,7 +27,7 @@ struct AppCommands: Commands {
 
     var body: some Commands {
         CommandGroup(replacing: .appSettings) {
-            Button("Settings…") { LaTeXCommandsWindow.shared.show() }
+            Button("Settings…") { SettingsWindow.shared.show() }
                 .keyboardShortcut(",")
         }
 
@@ -84,13 +84,23 @@ struct AppCommands: Commands {
                     .keyboardShortcut("l", modifiers: [.control, .command])
                 Button("New Text Box") { viewer?.editor.addTextBox() }
                     .keyboardShortcut("t", modifiers: [.control, .command])
+                Button("Next Colour") {
+                    viewer?.editor.cycleColor(backwards: false)
+                }
+                .keyboardShortcut(.tab, modifiers: .option)
+                Button("Previous Colour") {
+                    viewer?.editor.cycleColor(backwards: true)
+                }
+                .keyboardShortcut(.tab, modifiers: [.option, .shift])
             }
             .disabled(!canEdit)
             Divider()
             Button("Delete Annotation") { viewer?.editor.deleteSelection() }
                 .disabled(!canEdit || session?.selection == nil)
             Divider()
-            Button("LaTeX Commands…") { LaTeXCommandsWindow.shared.show() }
+            Button("LaTeX Commands…") {
+                SettingsWindow.shared.show(.latexCommands)
+            }
         }
 
         CommandGroup(after: .toolbar) {

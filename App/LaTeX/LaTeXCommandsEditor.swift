@@ -47,7 +47,6 @@ struct LaTeXCommandsEditor: View {
             }
         }
         .padding(16)
-        .frame(minWidth: 560, minHeight: 440)
         .onAppear { focused = true }
         .onChange(of: library.saved, initial: true) { library.checkSaved() }
     }

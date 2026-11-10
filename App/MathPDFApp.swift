@@ -57,7 +57,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminate(_ sender: NSApplication)
         -> NSApplication.TerminateReply
     {
-        guard LaTeXCommandsWindow.shared.confirmClosing() else {
+        guard SettingsWindow.shared.confirmClosing() else {
             return .terminateCancel
         }
         Task {
