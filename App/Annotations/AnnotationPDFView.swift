@@ -24,10 +24,19 @@ final class AnnotationPDFView: PDFView {
     // the sidebar, and when zoomed in the pages can scroll clear of it.
     // Scrolling itself is left to PDFKit.
 
-    /// While true, the pages are kept as wide as the uncovered area (Zoom to
-    /// Fit).
-    var fitsWidth = true {
-        didSet { if fitsWidth { updateGeometry() } }
+    /// The fit the pages are kept at as the uncovered area changes (Zoom to
+    /// Fit). Nil once the zoom is set by hand.
+    var fit: PageFit? = .width {
+        didSet { if fit != nil { updateGeometry() } }
+    }
+    /// The height on screen of a document's tallest page, in page units.
+    /// Worked out once per document, and only for a whole-page fit: it takes
+    /// every page.
+    private var tallestPage: TallestPage?
+
+    private struct TallestPage {
+        weak var document: PDFDocument?
+        let height: CGFloat
     }
     private var isUpdatingGeometry = false
     private weak var observedClip: NSClipView?
@@ -60,16 +69,40 @@ final class AnnotationPDFView: PDFView {
         PageFrame(box: page.bounds(for: displayBox), rotation: page.rotation)
     }
 
-    /// The zoom at which the pages, with their usual margins, exactly fill the
-    /// uncovered width.
-    var fitScale: CGFloat {
+    /// The zoom at which the pages, with their usual margins, fit the
+    /// uncovered area. The widest and the tallest page count, so the zoom is
+    /// the same wherever the document is scrolled to.
+    func fitScale(for fit: PageFit) -> CGFloat {
         guard let documentView else { return scaleFactor }
+        let margins = Self.standardMargins
         let width =
-            documentView.frame.width
-            - (pageBreakMargins.left - Self.standardMargins.left)
+            documentView.frame.width - (pageBreakMargins.left - margins.left)
         guard width > 0 else { return scaleFactor }
-        return min(
-            max(uncoveredRect.width / width, minScaleFactor), maxScaleFactor)
+        let scale = fit.scale(
+            width: width,
+            height: tallestPageHeight() + margins.top + margins.bottom,
+            in: uncoveredRect.size)
+        return min(max(scale, minScaleFactor), maxScaleFactor)
+    }
+
+    private func tallestPageHeight() -> CGFloat {
+        guard let document else { return 0 }
+        if let tallestPage, tallestPage.document === document {
+            return tallestPage.height
+        }
+        let heights = (0..<document.pageCount).compactMap {
+            document.page(at: $0).map { pageFrame(of: $0).shownSize.height }
+        }
+        let height = heights.max() ?? 0
+        tallestPage = TallestPage(document: document, height: height)
+        return height
+    }
+
+    /// Goes back to the fit's zoom when the area or the margins have changed.
+    private func applyFit() {
+        guard let fit else { return }
+        let scale = fitScale(for: fit)
+        if abs(scaleFactor - scale) > 0.0005 { scaleFactor = scale }
     }
 
     override func viewDidMoveToWindow() {
@@ -138,9 +171,7 @@ final class AnnotationPDFView: PDFView {
             scrollView.contentInsets = NSEdgeInsets(
                 top: covered.top, left: 0, bottom: covered.bottom, right: 0)
         }
-        if fitsWidth, abs(scaleFactor - fitScale) > 0.0005 {
-            scaleFactor = fitScale
-        }
+        applyFit()
         // Page margins are in page units, so the sidebar's width in them
         // depends on the zoom.
         let left = Self.standardMargins.left + covered.left / scaleFactor
@@ -149,9 +180,7 @@ final class AnnotationPDFView: PDFView {
             margins.left = left
             pageBreakMargins = margins
             layoutDocumentView()  // so the centring below sees the new width
-            if fitsWidth, abs(scaleFactor - fitScale) > 0.0005 {
-                scaleFactor = fitScale
-            }
+            applyFit()
         }
         if let anchorToKeep {
             restore(
@@ -183,7 +212,7 @@ final class AnnotationPDFView: PDFView {
     /// Sets the zoom straight away, keeping what's at the centre of the
     /// uncovered area in place.
     func zoom(to scale: CGFloat) {
-        fitsWidth = false
+        fit = nil
         let anchor = zoomAnchor()
         scaleFactor = min(max(scale, minScaleFactor), maxScaleFactor)
         updateGeometry()
@@ -198,7 +227,7 @@ final class AnnotationPDFView: PDFView {
 
     override func smartMagnify(with event: NSEvent) {
         guard editor?.isEditingItem != true else { return }
-        fitsWidth = false
+        fit = nil
         super.smartMagnify(with: event)
     }
 
@@ -388,11 +417,17 @@ final class AnnotationPDFView: PDFView {
 
     override func keyDown(with event: NSEvent) {
         let handled: Bool
-        let modifiers = event.modifierFlags.intersection(
-            .deviceIndependentFlagsMask)
+        // Arrow keys also carry flags that aren't modifiers.
+        let modifiers = event.modifierFlags.intersection([
+            .command, .control, .option, .shift,
+        ])
         switch event.specialKey {
         case .delete?, .deleteForward?:
             handled = editor?.deleteSelection() ?? false
+        case let key?
+        where (key == .leftArrow || key == .rightArrow) && modifiers.isEmpty:
+            viewer?.turnPage(by: key == .leftArrow ? -1 : 1)
+            handled = true
         // Backs up the menu's ⌥⇥ and ⌥⇧⇥: ⇧⇥ arrives as back-tab, which a
         // Tab key equivalent may not match.
         case let key?

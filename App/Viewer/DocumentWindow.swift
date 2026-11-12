@@ -169,7 +169,7 @@ private struct DocumentView: View {
                     "Zoom to Fit",
                     systemImage: "arrow.up.left.and.arrow.down.right"
                 ) { viewer.zoomToFit() }
-                .help("Zoom to Fit")
+                .help("Fit the width, or a whole page (⌘9)")
                 Button("Zoom In", systemImage: "plus.magnifyingglass") {
                     viewer.zoomIn()
                 }

@@ -138,7 +138,9 @@ there apply when you come back to mathpdf.
 | Save your LaTeX commands, or close Settings | ⌘S, ⌘W |
 | Export…, Quick Export | ⇧⌘E, ⌥⇧⌘E |
 | Find, Find Next, Find Previous | ⌘F, ⌘G, ⇧⌘G |
-| Zoom In, Zoom Out, Actual Size, Zoom to Fit | ⌘+, ⌘−, ⌘0, ⌘9 |
+| Zoom In, Zoom Out, Actual Size | ⌘+, ⌘−, ⌘0 |
+| Zoom to Fit: the width, then a whole page | ⌘9 |
+| Previous page, next page | ←, → |
 
 ## Install
 

@@ -1,3 +1,4 @@
+import MathPDFCore
 import Observation
 import PDFKit
 
@@ -37,7 +38,7 @@ final class Viewer: NSObject {
         pdfView.backgroundColor = Self.pageBackground
         pdfView.displayMode = .singlePageContinuous
         pdfView.displaysPageBreaks = true
-        // the view fits the pages itself (see `fitsWidth`)
+        // the view fits the pages itself (see `fit`)
         pdfView.autoScales = false
         // Selector-based, so it's removed automatically when the viewer goes
         // away.
@@ -82,8 +83,14 @@ final class Viewer: NSObject {
     }
 
     func go(toPage index: Int) {
-        guard let page = pdfView.document?.page(at: index) else { return }
+        guard (0..<pageCount).contains(index),
+            let page = pdfView.document?.page(at: index)
+        else { return }
         pdfView.go(to: page)
+    }
+
+    func turnPage(by offset: Int) {
+        go(toPage: pageIndex + offset)
     }
 
     // MARK: Versions
@@ -112,7 +119,7 @@ final class Viewer: NSObject {
         editor.documentReplaced()
         pdfView.document = document
         pageCount = document.pageCount
-        if !pdfView.fitsWidth { pdfView.scaleFactor = scale }
+        if pdfView.fit == nil { pdfView.scaleFactor = scale }
         pdfView.layoutDocumentView()
         pdfView.updateGeometry()
         if let anchor, let oldIndex {
@@ -151,9 +158,14 @@ final class Viewer: NSObject {
     func zoomOut() { animateZoom(to: pdfView.scaleFactor / 2.squareRoot()) }
     func actualSize() { animateZoom(to: 1) }
 
+    /// Alternates between fitting the width and a whole page. The page a
+    /// whole-page fit is made on is then shown in full.
     func zoomToFit() {
-        animateZoom(to: pdfView.fitScale) { [weak self] in
-            self?.pdfView.fitsWidth = true
+        let fit = PageFit.next(after: pdfView.fit)
+        animateZoom(to: pdfView.fitScale(for: fit)) { [weak self] in
+            guard let self else { return }
+            pdfView.fit = fit
+            if fit == .page { go(toPage: pageIndex) }
         }
     }
 
@@ -166,7 +178,7 @@ final class Viewer: NSObject {
     ) {
         guard !editor.isEditingItem else { return NSSound.beep() }
         zoomAnimation?.cancel()
-        pdfView.fitsWidth = false
+        pdfView.fit = nil
         // Zoom around the centre of what's visible, not counting what's under
         // the sidebar.
         let anchor = pdfView.zoomAnchor()
