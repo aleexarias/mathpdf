@@ -336,36 +336,38 @@ final class AnnotationEditor: NSObject {
                 anchorRects: anchors,
                 color: Palette.noteYellow)
         else { return }
-        popover.editNote(id, isNew: true)
+        popover.edit(id, isNew: true)
     }
 
     func addFormula() {
-        guard let (page, pageIndex, centre) = placeForNewItem() else { return }
-        let fontSize = popover.latexFontSize
-        guard
-            let id = session.beginLaTeX(
-                pageIndex: pageIndex,
-                bounds: pdfView.pageFrame(of: page).box(
-                    ofShownSize: LaTeXRenderer.size(
-                        of: "", fontSize: fontSize),
-                    centredAt: centre),
-                fontSize: fontSize, color: Palette.black)
-        else { return }
-        popover.editLaTeX(id, isNew: true)
+        addItem(
+            fontSize: \.latexFontSize,
+            size: { LaTeXRenderer.size(of: "", fontSize: $0) },
+            begin: session.beginLaTeX)
     }
 
     func addTextBox() {
+        addItem(
+            fontSize: \.textFontSize,
+            size: { TextBoxStyle.size(of: "", fontSize: $0) },
+            begin: session.beginTextBox)
+    }
+
+    /// Adds an empty formula or text box in the middle of the view and opens
+    /// its editor. The font size is read after what was being written has
+    /// made way, as finishing that is what sets it.
+    private func addItem(
+        fontSize: KeyPath<EditorPopoverController, Double>,
+        size: (Double) -> CGSize,
+        begin: (Int, CGRect, Double, RGBAColor) -> UUID?
+    ) {
         guard let (page, pageIndex, centre) = placeForNewItem() else { return }
-        let fontSize = popover.textFontSize
-        guard
-            let id = session.beginTextBox(
-                pageIndex: pageIndex,
-                bounds: pdfView.pageFrame(of: page).box(
-                    ofShownSize: TextBoxStyle.size(of: "", fontSize: fontSize),
-                    centredAt: centre),
-                fontSize: fontSize, color: Palette.black)
+        let fontSize = popover[keyPath: fontSize]
+        let bounds = pdfView.pageFrame(of: page).box(
+            ofShownSize: size(fontSize), centredAt: centre)
+        guard let id = begin(pageIndex, bounds, fontSize, Palette.black)
         else { return }
-        popover.editTextBox(id, isNew: true)
+        popover.edit(id, isNew: true)
     }
 
     /// The page at the centre of what's on screen, or the nearest if that's
@@ -501,7 +503,7 @@ final class AnnotationEditor: NSObject {
     func mouseUp(movedBy offset: CGSize) {
         if let item = editOnMouseUp {
             editOnMouseUp = nil
-            edit(item)
+            popover.edit(item.id, isNew: false)
             return
         }
         guard let gesture else { return }
@@ -592,7 +594,9 @@ final class AnnotationEditor: NSObject {
             }
         if let editTitle {
             menu.addItem(
-                ClosureMenuItem(editTitle) { [weak self] in self?.edit(hit) })
+                ClosureMenuItem(editTitle) { [weak self] in
+                    self?.popover.edit(hit.id, isNew: false)
+                })
             menu.addItem(.separator())
         }
         if hit.isRecolorable {
@@ -616,15 +620,6 @@ final class AnnotationEditor: NSObject {
                 self?.session.deleteItem(hit.itemID)
             })
         return menu
-    }
-
-    private func edit(_ annotation: Annotation) {
-        switch annotation.kind {
-        case .note: popover.editNote(annotation.id, isNew: false)
-        case .latex: popover.editLaTeX(annotation.id, isNew: false)
-        case .textBox: popover.editTextBox(annotation.id, isNew: false)
-        case .highlight, .underline: break
-        }
     }
 
     private func unionRect(of annotations: [Annotation]) -> CGRect {

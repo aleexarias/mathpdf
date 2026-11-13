@@ -221,30 +221,26 @@ struct RotatedPagesTests {
     /// coordinates and clipped to its bounds, then turned with the page.
     @Test(arguments: [0, 90, 180, 270])
     func inItsOwnLayer(rotation: Int) {
+        let overlap = ownLayer(rotation: rotation).turned(rotation).trimmed
+            .overlap(with: Self.upright)
+        #expect(overlap > 0.95, "overlap \(overlap)")
+    }
+
+    /// A formula on a page turned by `rotation`, drawn as its own layer is.
+    private func ownLayer(rotation: Int) -> Ink {
         let page = document(rotation: rotation).page(at: 0)!
         let mark = Self.formula(on: page, at: CGPoint(x: 300, y: 400))
         let bounds = mark.bounds
-        let drawn = Self.ink(width: bounds.width, height: bounds.height) {
+        return Self.ink(width: bounds.width, height: bounds.height) {
             $0.translateBy(x: -bounds.minX, y: -bounds.minY)
             $0.clip(to: bounds)
             mark.draw(with: .mediaBox, in: $0)
         }
-        let overlap = drawn.turned(rotation).trimmed.overlap(
-            with: Self.upright)
-        #expect(overlap > 0.95, "overlap \(overlap)")
     }
 
     /// The direction matters: turning the wrong way must not pass.
     @Test func turningTheWrongWayIsNoMatch() {
-        let page = document(rotation: 90).page(at: 0)!
-        let mark = Self.formula(on: page, at: CGPoint(x: 300, y: 400))
-        let bounds = mark.bounds
-        let drawn = Self.ink(width: bounds.width, height: bounds.height) {
-            $0.translateBy(x: -bounds.minX, y: -bounds.minY)
-            $0.clip(to: bounds)
-            mark.draw(with: .mediaBox, in: $0)
-        }
-        let overlap = drawn.turned(270).trimmed.overlap(
+        let overlap = ownLayer(rotation: 90).turned(270).trimmed.overlap(
             with: Self.upright)
         #expect(overlap < 0.8, "overlap \(overlap)")
     }

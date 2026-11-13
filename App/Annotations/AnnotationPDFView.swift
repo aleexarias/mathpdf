@@ -38,6 +38,10 @@ final class AnnotationPDFView: PDFView {
         weak var document: PDFDocument?
         let height: CGFloat
     }
+    /// Called after each change of geometry once the view has a size, which
+    /// is when PDFKit starts to take jumps to a page.
+    var onLayout: (() -> Void)?
+    private var isCallingOnLayout = false
     private var isUpdatingGeometry = false
     private weak var observedClip: NSClipView?
     /// What's at the centre of the uncovered area, so it stays there when the
@@ -136,11 +140,23 @@ final class AnnotationPDFView: PDFView {
                 name: NSView.frameDidChangeNotification, object: documentView)
             observedClip = clip
         }
-        updateGeometry()
+        geometryChanged()
     }
 
     @objc private func clipBoundsChanged() {
+        geometryChanged()
+    }
+
+    private func geometryChanged() {
         updateGeometry()
+        // Not from within itself: scrolling in it changes the geometry.
+        guard let onLayout, !isCallingOnLayout,
+            let clip = documentView?.enclosingScrollView?.contentView,
+            clip.bounds.height > 0
+        else { return }
+        isCallingOnLayout = true
+        defer { isCallingOnLayout = false }
+        onLayout()
     }
 
     /// Keeps the left margin, the top inset and the fit in line with the

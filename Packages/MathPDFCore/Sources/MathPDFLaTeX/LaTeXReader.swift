@@ -96,20 +96,19 @@ struct LaTeXReader {
     /// The contents of a `{group}` if one comes next, with nested groups and
     /// escaped braces.
     mutating func readGroup() throws(LaTeXProblem) -> String? {
-        skipSpaces()
-        guard index < text.count, text[index] == "{" else { return nil }
-        return try readBalanced(open: "{", close: "}")
+        try readBalanced(open: "{", close: "}")
     }
 
     mutating func readOptionalArgument() throws(LaTeXProblem) -> String? {
-        skipSpaces()
-        guard index < text.count, text[index] == "[" else { return nil }
-        return try readBalanced(open: "[", close: "]")
+        try readBalanced(open: "[", close: "]")
     }
 
+    /// What's between `open` and its `close`, if `open` comes next.
     private mutating func readBalanced(open: Character, close: Character)
-        throws(LaTeXProblem) -> String
+        throws(LaTeXProblem) -> String?
     {
+        skipSpaces()
+        guard index < text.count, text[index] == open else { return nil }
         index += 1
         let start = index
         var depth = 0

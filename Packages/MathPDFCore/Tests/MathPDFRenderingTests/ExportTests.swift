@@ -382,3 +382,14 @@ struct ExportTests {
         return url
     }
 }
+
+extension PDFExporter {
+    /// The exported copy's bytes, without writing a file.
+    static func annotatedPDF(
+        original data: Data, annotations: [Annotation]
+    ) throws -> Data {
+        try #require(
+            annotatedDocument(original: data, annotations: annotations)
+                .dataRepresentation())
+    }
+}

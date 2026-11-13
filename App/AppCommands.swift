@@ -113,6 +113,10 @@ struct AppCommands: Commands {
             Button("Zoom to Fit") { viewer?.zoomToFit() }
                 .keyboardShortcut("9")
             Divider()
+            Button("Go to Page…") { viewer?.choosePage() }
+                .keyboardShortcut("g", modifiers: [.option, .command])
+                .disabled(viewer == nil)
+            Divider()
         }
     }
 }

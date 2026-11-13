@@ -1,7 +1,7 @@
 import CoreGraphics
 
 /// A zoom that follows the view's size.
-public enum PageFit: Sendable {
+public enum PageFit: String, Codable, Sendable {
     /// The pages are as wide as the view.
     case width
     /// A whole page is in view.

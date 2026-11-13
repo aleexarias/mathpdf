@@ -141,6 +141,7 @@ there apply when you come back to mathpdf.
 | Zoom In, Zoom Out, Actual Size | ⌘+, ⌘−, ⌘0 |
 | Zoom to Fit: the width, then a whole page | ⌘9 |
 | Previous page, next page | ←, → |
+| Go to a page | ⌥⌘G |
 
 ## Install
 

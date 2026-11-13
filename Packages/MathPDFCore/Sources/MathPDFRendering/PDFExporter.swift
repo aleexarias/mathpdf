@@ -45,18 +45,7 @@ public enum PDFExporter {
             path: "\(name)_annotated.pdf")
     }
 
-    static func annotatedPDF(
-        original data: Data, annotations: [Annotation]
-    ) throws(Failure) -> Data {
-        guard
-            let output = try annotatedDocument(
-                original: data, annotations: annotations
-            ).dataRepresentation()
-        else { throw .couldntBuild }
-        return output
-    }
-
-    private static func annotatedDocument(
+    static func annotatedDocument(
         original data: Data, annotations: [Annotation]
     ) throws(Failure) -> PDFDocument {
         guard let document = PDFDocument(data: data) else {

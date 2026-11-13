@@ -12,6 +12,7 @@ final class Viewer: NSObject {
     @ObservationIgnored lazy var sidebar = PageSidebar(viewer: self)
     private(set) var pageCount: Int
     private(set) var pageIndex = 0
+    var isChoosingPage = false
 
     private(set) var matches: [PDFSelection] = []
     private(set) var matchIndex: Int?
@@ -20,6 +21,12 @@ final class Viewer: NSObject {
     /// The toolbar's search field, so Edit > Find can focus it.
     @ObservationIgnored weak var searchField: NSSearchField?
     @ObservationIgnored private var zoomAnimation: Task<Void, Never>?
+    /// False until the view is back where the file was last left, so the
+    /// view it opens with isn't recorded over that.
+    @ObservationIgnored private var isViewRestored = false
+    @ObservationIgnored private var isRestoringView = false
+    /// How long a new window's layout is given to settle.
+    private static let restorationTime = Duration.milliseconds(500)
     @ObservationIgnored private var searchItemObservation:
         NSKeyValueObservation?
     @ObservationIgnored private let versionsWindow = VersionsWindow()
@@ -46,9 +53,13 @@ final class Viewer: NSObject {
             self, selector: #selector(pageChanged), name: .PDFViewPageChanged,
             object: pdfView)
         NotificationCenter.default.addObserver(
+            self, selector: #selector(recordView), name: .PDFViewScaleChanged,
+            object: pdfView)
+        NotificationCenter.default.addObserver(
             self, selector: #selector(documentUnlocked),
             name: .PDFDocumentDidUnlock, object: document)
         pdfView.viewer = self
+        pdfView.onLayout = { [weak self] in self?.restoreView() }
         session.onPagesChanged = { [weak self] in
             self?.showChangedPages(newIndices: $0)
         }
@@ -80,17 +91,66 @@ final class Viewer: NSObject {
         else { return }
         pageIndex = document.index(for: page)
         sidebar.showCurrentPage()
+        recordView()
     }
 
-    func go(toPage index: Int) {
+    /// Returns whether there is such a page.
+    @discardableResult
+    func go(toPage index: Int) -> Bool {
         guard (0..<pageCount).contains(index),
             let page = pdfView.document?.page(at: index)
-        else { return }
+        else { return false }
         pdfView.go(to: page)
+        return true
     }
 
     func turnPage(by offset: Int) {
         go(toPage: pageIndex + offset)
+    }
+
+    func choosePage() {
+        guard editor.finishEditing() else { return }
+        isChoosingPage = true
+    }
+
+    // MARK: Where the file was left
+
+    @objc private func recordView() {
+        guard isViewRestored, let file = session.currentFileURL else { return }
+        ViewStateStore.shared.record(
+            ViewState(
+                pageIndex: pageIndex, fit: pdfView.fit,
+                scale: pdfView.scaleFactor),
+            for: file)
+    }
+
+    /// Puts the zoom and page back as they were left. While a new window is
+    /// laid out, PDFKit can ignore a jump or go back to the top after it, so
+    /// the jump is repeated at each layout for a moment. Nothing is recorded
+    /// until that's over, and then it's left alone.
+    private func restoreView() {
+        guard let file = session.currentFileURL,
+            let state = ViewStateStore.shared.state(for: file)
+        else { return finishRestoringView() }
+        if !isRestoringView {
+            isRestoringView = true
+            if let fit = state.fit {
+                pdfView.fit = fit
+            } else {
+                pdfView.zoom(to: state.scale)
+            }
+            Task { [weak self] in
+                try? await Task.sleep(for: Self.restorationTime)
+                self?.finishRestoringView()
+            }
+        }
+        if pageIndex != state.pageIndex { go(toPage: state.pageIndex) }
+    }
+
+    private func finishRestoringView() {
+        pdfView.onLayout = nil
+        isViewRestored = true
+        recordView()
     }
 
     // MARK: Versions
@@ -166,6 +226,7 @@ final class Viewer: NSObject {
             guard let self else { return }
             pdfView.fit = fit
             if fit == .page { go(toPage: pageIndex) }
+            recordView()
         }
     }
 

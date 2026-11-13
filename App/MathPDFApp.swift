@@ -60,6 +60,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard SettingsWindow.shared.confirmClosing() else {
             return .terminateCancel
         }
+        ViewStateStore.shared.flush()
         Task {
             await OpenDocuments.shared.flushAll()
             NSApp.reply(
@@ -74,10 +75,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidResignActive(_ notification: Notification) {
-        OpenDocuments.shared.flushAllInBackground()
+        saveInBackground()
     }
 
     func applicationDidHide(_ notification: Notification) {
+        saveInBackground()
+    }
+
+    @MainActor
+    private func saveInBackground() {
         OpenDocuments.shared.flushAllInBackground()
+        ViewStateStore.shared.flush()
     }
 }

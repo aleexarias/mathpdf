@@ -37,6 +37,7 @@ struct DocumentWindow: View {
             await viewer?.keepSearchFieldVisible()
         }
         .onDisappear {
+            ViewStateStore.shared.flush()
             viewer?.editor.closeEditor()
             viewer?.closeVersions()
             if let session { OpenDocuments.shared.windowClosed(session) }
@@ -150,11 +151,17 @@ private struct DocumentView: View {
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
         ToolbarItem(placement: .navigation) {
-            Text("Page \(viewer.pageIndex + 1) of \(viewer.pageCount)")
-                .monospacedDigit()
-                .foregroundStyle(.secondary)
-                .fixedSize()
-                .padding(.horizontal, 8)
+            Button(action: viewer.choosePage) {
+                Text("Page \(viewer.pageIndex + 1) of \(viewer.pageCount)")
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+                    .fixedSize()
+                    .padding(.horizontal, 8)
+            }
+            .help("Go to Page… (⌥⌘G)")
+            .popover(isPresented: Bindable(viewer).isChoosingPage) {
+                GoToPageView(viewer: viewer)
+            }
         }
         ToolbarItemGroup {
             AnnotationTools(session: session, editor: viewer.editor)

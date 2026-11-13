@@ -54,45 +54,30 @@ final class EditorPopoverController: NSObject {
         timestamp == closingEvent
     }
 
-    func editNote(_ id: UUID, isNew: Bool) {
+    /// Opens the editor of a note, formula or text box.
+    func edit(_ id: UUID, isNew: Bool) {
         // an editor still open keeps what was typed
-        guard tryToFinish() else { return }
-        guard let note = annotation(id), case .note(let text, _) = note.kind
-        else { return }
-        let draft = NoteDraft(text: text)
-        present(
-            NoteEditorView(draft: draft) { [weak self] in
-                self?.tryToFinish()
-            },
-            for: note, isNew: isNew, draft: .note(draft))
-    }
-
-    func editLaTeX(_ id: UUID, isNew: Bool) {
-        guard tryToFinish() else { return }
-        guard let formula = annotation(id),
-            case .latex(let source, let fontSize, let expanded) = formula.kind
-        else { return }
-        let draft = LaTeXDraft(
-            source: source, fontSize: fontSize, expanded: expanded)
-        present(
-            LaTeXEditorView(draft: draft) { [weak self] in
-                self?.tryToFinish()
-            },
-            for: formula, isNew: isNew, draft: .latex(draft))
-    }
-
-    func editTextBox(_ id: UUID, isNew: Bool) {
-        guard tryToFinish() else { return }
-        guard let box = annotation(id),
-            case .textBox(let text, let fontSize, let expanded) = box.kind
-        else { return }
-        let draft = TextBoxDraft(
-            text: text, fontSize: fontSize, expanded: expanded)
-        present(
-            TextBoxEditorView(draft: draft) { [weak self] in
-                self?.tryToFinish()
-            }, for: box, isNew: isNew,
-            draft: .textBox(draft))
+        guard tryToFinish(), let annotation = annotation(id) else { return }
+        let done: () -> Void = { [weak self] in self?.tryToFinish() }
+        func present(_ editor: some View, _ draft: Draft) {
+            self.present(editor, for: annotation, isNew: isNew, draft: draft)
+        }
+        switch annotation.kind {
+        case .note(let text, _):
+            let draft = NoteDraft(text: text)
+            present(NoteEditorView(draft: draft, done: done), .note(draft))
+        case .latex(let source, let fontSize, let expanded):
+            let draft = LaTeXDraft(
+                source: source, fontSize: fontSize, expanded: expanded)
+            present(LaTeXEditorView(draft: draft, done: done), .latex(draft))
+        case .textBox(let text, let fontSize, let expanded):
+            let draft = TextBoxDraft(
+                text: text, fontSize: fontSize, expanded: expanded)
+            present(
+                TextBoxEditorView(draft: draft, done: done), .textBox(draft))
+        case .highlight, .underline:
+            break
+        }
     }
 
     /// One try to leave the editor: Esc, Done (⌘↩) or a click outside it.
