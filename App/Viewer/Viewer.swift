@@ -12,6 +12,7 @@ final class Viewer: NSObject {
     @ObservationIgnored lazy var sidebar = PageSidebar(viewer: self)
     private(set) var pageCount: Int
     private(set) var pageIndex = 0
+    private(set) var displayMode = PDFDisplayMode.singlePageContinuous
     var isChoosingPage = false
 
     private(set) var matches: [PDFSelection] = []
@@ -56,6 +57,9 @@ final class Viewer: NSObject {
             self, selector: #selector(recordView), name: .PDFViewScaleChanged,
             object: pdfView)
         NotificationCenter.default.addObserver(
+            self, selector: #selector(displayModeChanged),
+            name: .PDFViewDisplayModeChanged, object: pdfView)
+        NotificationCenter.default.addObserver(
             self, selector: #selector(documentUnlocked),
             name: .PDFDocumentDidUnlock, object: document)
         pdfView.viewer = self
@@ -79,6 +83,10 @@ final class Viewer: NSObject {
     static let pageBackground = NSColor(name: "PageBackground") { appearance in
         appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
             ? NSColor(white: 0.27, alpha: 1) : NSColor(white: 0.86, alpha: 1)
+    }
+
+    @objc private func displayModeChanged() {
+        displayMode = pdfView.displayMode
     }
 
     @objc private func documentUnlocked() {
@@ -106,7 +114,13 @@ final class Viewer: NSObject {
     }
 
     func turnPage(by offset: Int) {
-        go(toPage: pageIndex + offset)
+        let showsSpreads = [.twoUp, .twoUpContinuous].contains(displayMode)
+        guard
+            let target = PageStep.target(
+                from: pageIndex, by: offset,
+                pagesPerSpread: showsSpreads ? 2 : 1, pageCount: pageCount)
+        else { return }
+        go(toPage: target)
     }
 
     func choosePage() {

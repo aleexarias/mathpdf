@@ -9,8 +9,6 @@ import SwiftUI
 /// rules for leaving it. One per window.
 @MainActor
 final class EditorPopoverController: NSObject {
-    /// What new formulas and text boxes start with: the last colour and the
-    /// last sizes chosen.
     var writing = WritingDefaults.standard {
         didSet { if writing != oldValue { onWritingChanged?() } }
     }

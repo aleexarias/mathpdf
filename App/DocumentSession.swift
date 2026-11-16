@@ -180,6 +180,8 @@ final class DocumentSession {
             savingAllowed = false
             notice = .blocked(reason)
         }
+        // Not inline: calling it within the assignment overlaps the access to
+        // `annotationSet`, an exclusivity violation at run time.
         let incoming = incoming(annotations)
         annotationSet?.annotations = incoming
         let stored = await Persistence.store.pageIdentity(documentHash: hash)
@@ -458,9 +460,8 @@ final class DocumentSession {
         apply(annotations.restoringVersion(incoming(version)))
     }
 
-    /// Annotations coming from the store or from another PDF, brought up to
-    /// date: boxes saved the wrong way round on turned pages, and colours the
-    /// palette no longer has.
+    /// Corrects loaded annotations: boxes saved sideways on turned pages, and
+    /// retired colours.
     func incoming(_ annotations: [Annotation]) -> [Annotation] {
         guard let pdf else { return annotations }
         return SidewaysBoxes.corrected(annotations, in: pdf).recolored(

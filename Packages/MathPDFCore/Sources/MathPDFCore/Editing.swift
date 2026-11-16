@@ -305,9 +305,8 @@ extension [Annotation] {
             : AnnotationEdit(annotations: remaining, actionName: "Delete")
     }
 
-    /// These annotations with each colour that's a key of `replacements`
-    /// changed to its value. Not an edit: nothing else changes, not even
-    /// when they were last modified.
+    /// Swaps colours by `replacements`, leaving everything else, `modifiedAt`
+    /// included, as it was.
     public func recolored(_ replacements: [RGBAColor: RGBAColor])
         -> [Annotation]
     {

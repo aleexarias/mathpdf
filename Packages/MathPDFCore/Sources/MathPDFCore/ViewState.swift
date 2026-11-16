@@ -7,7 +7,7 @@ public struct ViewState: Codable, Equatable, Sendable {
     /// Nil when the zoom was set by hand, to `scale`.
     public var fit: PageFit?
     public var scale: Double
-    /// Nil if never recorded, as in entries stored before it existed.
+    /// Nil in entries stored before it was added.
     public var writing: WritingDefaults?
 
     public init(
@@ -21,7 +21,7 @@ public struct ViewState: Codable, Equatable, Sendable {
     }
 }
 
-/// The colour new formulas and text boxes are made in, and the size of each.
+/// What new formulas and text boxes start with.
 public struct WritingDefaults: Codable, Equatable, Sendable {
     public var color: RGBAColor
     public var formulaSize: Double

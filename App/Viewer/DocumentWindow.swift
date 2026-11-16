@@ -75,10 +75,14 @@ private struct DocumentView: View {
             }
             .navigationSplitViewColumnWidth(min: 170, ideal: 210, max: 320)
         } detail: {
-            // The page reaches under the translucent toolbar and sidebar: it
-            // starts clear of them and can be scrolled underneath.
+            // Only Single Page Continuous reaches under the sidebar: in the
+            // other layouts PDFKit positions the pages itself and won't keep
+            // them clear of it.
             PDFKitView(pdfView: viewer.pdfView)
-                .ignoresSafeArea()
+                .ignoresSafeArea(
+                    edges: viewer.displayMode == .singlePageContinuous
+                        ? .all : [.top, .bottom, .trailing]
+                )
                 .safeAreaInset(edge: .top, spacing: 0) {
                     NoticeBar(session: session)
                 }

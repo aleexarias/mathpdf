@@ -187,8 +187,8 @@ final class VersionHistory {
         return version
     }
 
-    /// Compared as the version would be restored, brought up to date, since
-    /// that's how the current annotations were loaded.
+    /// The version is corrected first, as the current annotations were when
+    /// they were loaded.
     func isSameAsNow(_ version: Version) -> Bool {
         version.pageOrder == nil
             && version.annotations.map(session.incoming) == session.annotations

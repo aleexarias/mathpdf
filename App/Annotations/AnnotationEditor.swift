@@ -337,7 +337,6 @@ final class AnnotationEditor: NSObject {
         popover.edit(id, isNew: true)
     }
 
-    /// What new formulas and text boxes start with.
     var writing: WritingDefaults {
         get { popover.writing }
         set { popover.writing = newValue }
@@ -348,8 +347,6 @@ final class AnnotationEditor: NSObject {
         set { popover.onWritingChanged = newValue }
     }
 
-    /// Recolouring a formula or text box also sets the colour new ones
-    /// start with.
     private func recolor(_ annotation: Annotation, to color: RGBAColor) {
         session.recolorItem(annotation.itemID, to: color)
         switch annotation.kind {

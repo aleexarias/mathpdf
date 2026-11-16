@@ -19,9 +19,6 @@ enum Palette {
     static let blue = RGBAColor(red: 0.52, green: 0.76, blue: 1)
     static let green = RGBAColor(red: 0.52, green: 0.86, blue: 0.56)
     static let noteYellow = RGBAColor(red: 1, green: 0.95, blue: 0.62)
-
-    // For writing: black, and colours that stand apart from the PDF's own
-    // black text.
     static let black = RGBAColor(red: 0, green: 0, blue: 0)
     static let darkBlue = RGBAColor(
         red: 27 / 255, green: 54 / 255, blue: 102 / 255)
@@ -30,11 +27,9 @@ enum Palette {
     static let white = RGBAColor(
         red: 242 / 255, green: 240 / 255, blue: 232 / 255)
 
-    /// Colours the palette no longer has, and what annotations still in them
-    /// become when they're loaded.
+    /// Retired colours, mapped to the ones that replace them.
     static let replaced = [RGBAColor(red: 1, green: 0.48, blue: 0.45): red]
 
-    /// Round the colour wheel, then from light to dark.
     static let entries: [Entry] = [
         Entry(name: "Red", color: red),
         Entry(name: "Orange", color: orange),
