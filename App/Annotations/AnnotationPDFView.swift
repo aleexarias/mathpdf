@@ -225,19 +225,18 @@ final class AnnotationPDFView: PDFView {
         }
     }
 
-    /// When the pages (with the sidebar margin) are no wider than the view,
-    /// they can't be scrolled sideways, so they're held centred, which puts
-    /// them in the middle of the uncovered area. Wider pages are left entirely
-    /// to the user. Other layouts have no sidebar margin; PDFKit centres
-    /// them itself.
+    /// Pages no wider than the view can't be scrolled sideways, so they're
+    /// held centred: with the sidebar margin, that's the middle of the
+    /// uncovered area. PDFKit centres pages itself only when it lays them
+    /// out, not as the view's width changes.
     private func centerIfNarrower() {
-        guard displayMode == .singlePageContinuous, let documentView,
+        guard let documentView,
             let scrollView = documentView.enclosingScrollView
         else { return }
         let clip = scrollView.contentView
-        let spare = clip.bounds.width - documentView.frame.width
-        guard spare >= -0.5 else { return }
-        let x = -max(0, spare) / 2
+        let pages = documentView.frame
+        guard pages.width <= clip.bounds.width + 0.5 else { return }
+        let x = pages.midX - clip.bounds.width / 2
         guard abs(clip.bounds.origin.x - x) > 0.5 else { return }
         clip.scroll(to: NSPoint(x: x, y: clip.bounds.origin.y))
         scrollView.reflectScrolledClipView(clip)
@@ -328,12 +327,13 @@ final class AnnotationPDFView: PDFView {
         of scrollView: NSScrollView
     ) -> (x: ClosedRange<CGFloat>?, y: ClosedRange<CGFloat>?) {
         let clip = scrollView.contentView
-        guard clip.frame.width > 0 else { return (nil, nil) }
+        guard let documentView, clip.frame.width > 0 else { return (nil, nil) }
         func limits(_ least: CGFloat, _ most: CGFloat) -> ClosedRange<CGFloat>?
         {
             most > least + 0.5 ? least...most : nil
         }
-        let document = clip.documentRect
+        // Not `documentRect`, which is never smaller than the clip view.
+        let document = documentView.frame
         // Insets are in points, the clip view's bounds in page units.
         let unit = clip.bounds.width / clip.frame.width
         let top = scrollView.contentInsets.top * unit
@@ -468,6 +468,22 @@ final class AnnotationPDFView: PDFView {
         let y = up == clip.isFlipped ? range.upperBound : range.lowerBound
         clip.scroll(to: NSPoint(x: clip.bounds.origin.x, y: y))
         scrollView.reflectScrolledClipView(clip)
+    }
+
+    /// Scrolls the top of `page` to the top of the uncovered area. PDFKit's
+    /// `go(to:)` does too, but in two-page layouts it ignores the toolbar.
+    func showTop(of page: PDFPage) {
+        let shown = convert(page.bounds(for: displayBox), from: page)
+        let top = CGPoint(
+            x: shown.midX, y: isFlipped ? shown.minY : shown.maxY)
+        let margin = pageBreakMargins.top * scaleFactor
+        let area = uncoveredRect
+        restore(
+            ZoomAnchor(
+                page: page, pagePoint: convert(top, to: page), viewPoint: top),
+            at: CGPoint(
+                x: top.x,
+                y: isFlipped ? area.minY + margin : area.maxY - margin))
     }
 
     /// Scrolls as little as needed, if at all, to show `rect` on `page` clear

@@ -241,7 +241,9 @@ final class Viewer: NSObject {
         animateZoom(to: pdfView.fitScale(for: fit)) { [weak self] in
             guard let self else { return }
             pdfView.fit = fit
-            if fit == .page { go(toPage: pageIndex) }
+            if fit == .page, let page = pdfView.document?.page(at: pageIndex) {
+                pdfView.showTop(of: page)
+            }
             recordView()
         }
     }
