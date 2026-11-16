@@ -180,8 +180,8 @@ final class DocumentSession {
             savingAllowed = false
             notice = .blocked(reason)
         }
-        let corrected = SidewaysBoxes.corrected(annotations, in: pdf)
-        annotationSet?.annotations = corrected
+        let incoming = incoming(annotations)
+        annotationSet?.annotations = incoming
         let stored = await Persistence.store.pageIdentity(documentHash: hash)
         pageIdentity =
             stored?.pageIDs.count == pdf.pageCount
@@ -311,8 +311,7 @@ final class DocumentSession {
         }
         guard
             let (edit, leftOut) = annotations.relinking(
-                SidewaysBoxes.corrected(saved.annotations, in: pdf),
-                pageBoxes: pageBoxes)
+                incoming(saved.annotations), pageBoxes: pageBoxes)
         else {
             notice = .error(
                 """
@@ -456,10 +455,16 @@ final class DocumentSession {
     /// Puts back an earlier version's annotations; undoable, and saved as a
     /// new version.
     func restore(_ version: [Annotation]) {
-        guard let pdf else { return }
-        apply(
-            annotations.restoringVersion(
-                SidewaysBoxes.corrected(version, in: pdf)))
+        apply(annotations.restoringVersion(incoming(version)))
+    }
+
+    /// Annotations coming from the store or from another PDF, brought up to
+    /// date: boxes saved the wrong way round on turned pages, and colours the
+    /// palette no longer has.
+    func incoming(_ annotations: [Annotation]) -> [Annotation] {
+        guard let pdf else { return annotations }
+        return SidewaysBoxes.corrected(annotations, in: pdf).recolored(
+            Palette.replaced)
     }
 
     /// The one way annotations change: registers the undo (whose redo comes

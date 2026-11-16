@@ -368,6 +368,40 @@ struct EditingTests {
 
     private struct Failure: Error {}
 
+    // MARK: Recolouring
+
+    private let oldRed = RGBAColor(red: 1, green: 0.48, blue: 0.45)
+    private let newRed = RGBAColor(
+        red: 249 / 255, green: 135 / 255, blue: 128 / 255)
+
+    @Test func recoloringChangesOnlyExactMatches() {
+        let annotations = [
+            oldRed, RGBAColor(red: 1, green: 0.48, blue: 0.451),
+            RGBAColor(red: 0, green: 0, blue: 0),
+        ].map {
+            Annotation(
+                kind: .highlight, pageIndex: 0,
+                bounds: CGRect(x: 10, y: 700, width: 200, height: 12),
+                color: $0, createdAt: Date(timeIntervalSince1970: 100),
+                modifiedAt: Date(timeIntervalSince1970: 200))
+        }
+        let recolored = annotations.recolored([oldRed: newRed])
+        #expect(
+            recolored.map(\.color) == [newRed]
+                + annotations.dropFirst().map(\.color))
+        for (before, after) in zip(annotations, recolored) {
+            #expect(after.id == before.id)
+            #expect(after.bounds == before.bounds)
+            #expect(after.kind == before.kind)
+            #expect(after.modifiedAt == before.modifiedAt)
+        }
+    }
+
+    @Test func recoloringWithNothingToReplaceChangesNothing() {
+        let annotations = [onPage(0, at: line), onPage(1, at: line)]
+        #expect(annotations.recolored([:]) == annotations)
+    }
+
     // MARK: Relinking
 
     private func onPage(_ index: Int, at rect: CGRect) -> Annotation {

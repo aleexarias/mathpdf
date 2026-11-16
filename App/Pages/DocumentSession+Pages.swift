@@ -69,6 +69,7 @@ extension DocumentSession {
         guard let set = annotationSet, !arrangement.pages.isEmpty,
             !arrangement.changesNothing(pageCount: set.pageCount)
         else { return false }
+        let pasted = copied?.annotations.recolored(Palette.replaced) ?? []
         return await runPageChange(
             actionName,
             newIndices: arrangement.newIndices(pageCount: set.pageCount)
@@ -80,7 +81,7 @@ extension DocumentSession {
                 hash: sha256Hex(data),
                 pageIDs: arrangement.pageIDs(from: current.pageIDs),
                 annotations: current.annotations.arranged(
-                    for: arrangement, pasted: copied?.annotations ?? []))
+                    for: arrangement, pasted: pasted))
         }
     }
 
@@ -94,6 +95,7 @@ extension DocumentSession {
         guard let url = order.pdfURL, let currentIDs = pageIdentity?.pageIDs
         else { return false }
         let pages = order.identity.pageIDs
+        let earlier = earlier.recolored(Palette.replaced)
         return await runPageChange(
             "Restore Pages",
             newIndices: currentIDs.map { pages.firstIndex(of: $0) }

@@ -305,6 +305,20 @@ extension [Annotation] {
             : AnnotationEdit(annotations: remaining, actionName: "Delete")
     }
 
+    /// These annotations with each colour that's a key of `replacements`
+    /// changed to its value. Not an edit: nothing else changes, not even
+    /// when they were last modified.
+    public func recolored(_ replacements: [RGBAColor: RGBAColor])
+        -> [Annotation]
+    {
+        map { annotation in
+            var recolored = annotation
+            recolored.color =
+                replacements[annotation.color] ?? annotation.color
+            return recolored
+        }
+    }
+
     /// Puts back the annotations of an earlier version, as one undoable step.
     public func restoringVersion(_ version: [Annotation]) -> AnnotationEdit? {
         version == self
