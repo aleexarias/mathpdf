@@ -39,11 +39,49 @@ struct ViewStateTests {
         var states = RecentViewStates()
         states.record(state(page: 7), for: "/a.pdf")
         states.record(
-            ViewState(pageIndex: 0, fit: nil, scale: 2), for: "/b.pdf")
+            ViewState(
+                pageIndex: 0, fit: nil, scale: 2,
+                writing: WritingDefaults(
+                    color: RGBAColor(
+                        red: 27 / 255, green: 54 / 255, blue: 102 / 255),
+                    formulaSize: 20, textSize: 12)),
+            for: "/b.pdf")
         let stored = try JSONEncoder().encode(states)
         #expect(
             try JSONDecoder().decode(RecentViewStates.self, from: stored)
                 == states)
+    }
+
+    @Test func theStandardIsBlackAtSixteenAndFourteen() {
+        #expect(
+            WritingDefaults.standard
+                == WritingDefaults(
+                    color: RGBAColor(red: 0, green: 0, blue: 0),
+                    formulaSize: 16, textSize: 14))
+    }
+
+    @Test func anEntryStoredBeforeHasNoWritingDefaults() throws {
+        let stored = Data(
+            #"""
+            {"entries":{"/a.pdf":{"state":{"pageIndex":2,"fit":"width",\#
+            "scale":1},"changedAt":0}}}
+            """#.utf8)
+        let states = try JSONDecoder().decode(
+            RecentViewStates.self, from: stored)
+        #expect(states["/a.pdf"]?.pageIndex == 2)
+        #expect(states["/a.pdf"]?.writing == nil)
+    }
+
+    @Test func aChangedColourIsAChange() {
+        var states = RecentViewStates()
+        var written = ViewState(
+            pageIndex: 0, fit: .width, scale: 1, writing: .standard)
+        states.record(written, for: "/a.pdf")
+        let blue = RGBAColor(red: 27 / 255, green: 54 / 255, blue: 102 / 255)
+        written.writing?.color = blue
+        let changed = states.record(written, for: "/a.pdf")
+        #expect(changed)
+        #expect(states["/a.pdf"]?.writing?.color == blue)
     }
 
     @Test func damagedDataIsRefusedRatherThanMisread() {

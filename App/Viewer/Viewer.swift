@@ -60,6 +60,7 @@ final class Viewer: NSObject {
             name: .PDFDocumentDidUnlock, object: document)
         pdfView.viewer = self
         pdfView.onLayout = { [weak self] in self?.restoreView() }
+        editor.onWritingChanged = { [weak self] in self?.recordView() }
         session.onPagesChanged = { [weak self] in
             self?.showChangedPages(newIndices: $0)
         }
@@ -120,7 +121,7 @@ final class Viewer: NSObject {
         ViewStateStore.shared.record(
             ViewState(
                 pageIndex: pageIndex, fit: pdfView.fit,
-                scale: pdfView.scaleFactor),
+                scale: pdfView.scaleFactor, writing: editor.writing),
             for: file)
     }
 
@@ -134,6 +135,7 @@ final class Viewer: NSObject {
         else { return finishRestoringView() }
         if !isRestoringView {
             isRestoringView = true
+            editor.writing = state.writing ?? .standard
             if let fit = state.fit {
                 pdfView.fit = fit
             } else {

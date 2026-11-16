@@ -1,17 +1,41 @@
 import Foundation
 
-/// Where a document's window was left: its page and its zoom.
+/// Where a document's window was left, its page and its zoom, and what new
+/// formulas and text boxes in it start with.
 public struct ViewState: Codable, Equatable, Sendable {
     public var pageIndex: Int
     /// Nil when the zoom was set by hand, to `scale`.
     public var fit: PageFit?
     public var scale: Double
+    /// Nil if never recorded, as in entries stored before it existed.
+    public var writing: WritingDefaults?
 
-    public init(pageIndex: Int, fit: PageFit?, scale: Double) {
+    public init(
+        pageIndex: Int, fit: PageFit?, scale: Double,
+        writing: WritingDefaults? = nil
+    ) {
         self.pageIndex = pageIndex
         self.fit = fit
         self.scale = scale
+        self.writing = writing
     }
+}
+
+/// The colour new formulas and text boxes are made in, and the size of each.
+public struct WritingDefaults: Codable, Equatable, Sendable {
+    public var color: RGBAColor
+    public var formulaSize: Double
+    public var textSize: Double
+
+    public init(color: RGBAColor, formulaSize: Double, textSize: Double) {
+        self.color = color
+        self.formulaSize = formulaSize
+        self.textSize = textSize
+    }
+
+    public static let standard = WritingDefaults(
+        color: RGBAColor(red: 0, green: 0, blue: 0), formulaSize: 16,
+        textSize: 14)
 }
 
 /// The view states of the files changed most recently, by path. The oldest

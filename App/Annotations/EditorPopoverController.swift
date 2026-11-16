@@ -9,10 +9,12 @@ import SwiftUI
 /// rules for leaving it. One per window.
 @MainActor
 final class EditorPopoverController: NSObject {
-    /// The size new formulas get: the last one chosen.
-    private(set) var latexFontSize: Double = 16
-    /// The size new text boxes get: the last one chosen.
-    private(set) var textFontSize: Double = 14
+    /// What new formulas and text boxes start with: the last colour and the
+    /// last sizes chosen.
+    var writing = WritingDefaults.standard {
+        didSet { if writing != oldValue { onWritingChanged?() } }
+    }
+    var onWritingChanged: (() -> Void)?
 
     private let session: DocumentSession
     private let pdfView: AnnotationPDFView
@@ -199,7 +201,7 @@ final class EditorPopoverController: NSObject {
             session.finishNote(
                 current.id, text: draft.text, isNew: current.isNew)
         case .latex(let draft) where saving:
-            latexFontSize = draft.fontSize
+            writing.formulaSize = draft.fontSize
             let expanded =
                 (try? draft.expansion(
                     using: Persistence.latexCommands.current)) ?? draft.source
@@ -210,7 +212,7 @@ final class EditorPopoverController: NSObject {
                     of: expanded, fontSize: draft.fontSize),
                 isNew: current.isNew, within: pageFrame(of: current.id))
         case .textBox(let draft):
-            textFontSize = draft.fontSize
+            writing.textSize = draft.fontSize
             let expanded =
                 (try? draft.expansion(
                     using: Persistence.latexCommands.current)) ?? draft.text

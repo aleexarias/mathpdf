@@ -220,9 +220,7 @@ final class AnnotationEditor: NSObject {
 
     func chooseColor(_ newColor: RGBAColor) {
         if let selected = session.selectedAnnotations.first {
-            if selected.isRecolorable {
-                session.recolorItem(selected.itemID, to: newColor)
-            }
+            if selected.isRecolorable { recolor(selected, to: newColor) }
             return
         }
         switch tool {
@@ -339,16 +337,37 @@ final class AnnotationEditor: NSObject {
         popover.edit(id, isNew: true)
     }
 
+    /// What new formulas and text boxes start with.
+    var writing: WritingDefaults {
+        get { popover.writing }
+        set { popover.writing = newValue }
+    }
+
+    var onWritingChanged: (() -> Void)? {
+        get { popover.onWritingChanged }
+        set { popover.onWritingChanged = newValue }
+    }
+
+    /// Recolouring a formula or text box also sets the colour new ones
+    /// start with.
+    private func recolor(_ annotation: Annotation, to color: RGBAColor) {
+        session.recolorItem(annotation.itemID, to: color)
+        switch annotation.kind {
+        case .latex, .textBox: writing.color = color
+        case .highlight, .underline, .note: break
+        }
+    }
+
     func addFormula() {
         addItem(
-            fontSize: \.latexFontSize,
+            fontSize: \.formulaSize,
             size: { LaTeXRenderer.size(of: "", fontSize: $0) },
             begin: session.beginLaTeX)
     }
 
     func addTextBox() {
         addItem(
-            fontSize: \.textFontSize,
+            fontSize: \.textSize,
             size: { TextBoxStyle.size(of: "", fontSize: $0) },
             begin: session.beginTextBox)
     }
@@ -357,15 +376,15 @@ final class AnnotationEditor: NSObject {
     /// its editor. The font size is read after what was being written has
     /// made way, as finishing that is what sets it.
     private func addItem(
-        fontSize: KeyPath<EditorPopoverController, Double>,
+        fontSize: KeyPath<WritingDefaults, Double>,
         size: (Double) -> CGSize,
         begin: (Int, CGRect, Double, RGBAColor) -> UUID?
     ) {
         guard let (page, pageIndex, centre) = placeForNewItem() else { return }
-        let fontSize = popover[keyPath: fontSize]
+        let fontSize = writing[keyPath: fontSize]
         let bounds = pdfView.pageFrame(of: page).box(
             ofShownSize: size(fontSize), centredAt: centre)
-        guard let id = begin(pageIndex, bounds, fontSize, Palette.black)
+        guard let id = begin(pageIndex, bounds, fontSize, writing.color)
         else { return }
         popover.edit(id, isNew: true)
     }
@@ -603,7 +622,7 @@ final class AnnotationEditor: NSObject {
             let colours = NSMenu()
             for entry in Palette.entries {
                 let item = ClosureMenuItem(entry.name) { [weak self] in
-                    self?.session.recolorItem(hit.itemID, to: entry.color)
+                    self?.recolor(hit, to: entry.color)
                 }
                 item.image = Palette.swatch(entry.color)
                 item.state = hit.color == entry.color ? .on : .off
