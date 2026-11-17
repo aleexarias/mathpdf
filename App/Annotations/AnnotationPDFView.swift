@@ -50,6 +50,8 @@ final class AnnotationPDFView: PDFView {
     private var sidebarAnchor: ZoomAnchor?
     private var sidebarSettling: Task<Void, Never>?
     private var lastCoveredLeft: CGFloat?
+    /// Page units per point when the scroll view last tiled.
+    private var tiledUnit: CGFloat?
     private var scrollMonitor: Any?
     /// Nil until the scroll under way has a direction.
     private var pageScroll: PageScroll?
@@ -193,6 +195,7 @@ final class AnnotationPDFView: PDFView {
                 right: 0)
         }
         applyFit()
+        convertInsets(of: scrollView)
         if let anchorToKeep {
             restore(
                 anchorToKeep,
@@ -207,6 +210,19 @@ final class AnnotationPDFView: PDFView {
         guard clip.frame.width > 0 else { return 0 }
         return scrollView.contentInsets.left * clip.bounds.width
             / clip.frame.width
+    }
+
+    /// The clip view keeps the insets in page units, converted only when the
+    /// scroll view tiles, which a change of zoom doesn't make it do.
+    private func convertInsets(of scrollView: NSScrollView) {
+        let clip = scrollView.contentView
+        guard clip.frame.width > 0 else { return }
+        let unit = clip.bounds.width / clip.frame.width
+        guard tiledUnit.map({ abs($0 - unit) > 0.0001 }) ?? true else {
+            return
+        }
+        tiledUnit = unit
+        scrollView.tile()
     }
 
     private func sidebarMoved() {

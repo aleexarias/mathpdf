@@ -3,10 +3,12 @@ import AppKit
 /// PDFKit's clip view bounds scrolling and centres narrow pages in its
 /// `constrainBoundsRect`, which AppKit consults at every layout. It takes no
 /// account of a left inset: pages keep being pushed sideways by the inset's
-/// width. This gives a clip view a subclass, made at run time as PDFKit's
-/// class is private, that keeps PDFKit's vertical answer and replaces the
-/// horizontal one with AppKit's own, which allows for insets, centring
-/// pages that fit in what the inset leaves.
+/// width. Vertically, it shifts the range by the bottom inset, so the top of
+/// the pages can't be scrolled clear of the toolbar. This gives a clip view
+/// a subclass, made at run time as PDFKit's class is private, that uses
+/// AppKit's own answer, which allows for insets, centring pages that fit in
+/// what the inset leaves. PDFKit's vertical answer is kept where the pages
+/// fit, as it centres them.
 @MainActor
 enum ClipConstraint {
     private typealias Constrain =
@@ -36,8 +38,11 @@ enum ClipConstraint {
             clip, proposed in
             MainActor.assumeIsolated {
                 var bounds = pdfKit(clip, selector, proposed)
-                bounds.origin.x = horizontalOrigin(
-                    of: standard(clip, selector, proposed), in: clip)
+                let appKit = standard(clip, selector, proposed)
+                bounds.origin.x = horizontalOrigin(of: appKit, in: clip)
+                if pagesAreTaller(than: appKit, in: clip) {
+                    bounds.origin.y = appKit.origin.y
+                }
                 return bounds
             }
         }
@@ -60,5 +65,13 @@ enum ClipConstraint {
             return bounds.origin.x
         }
         return pages.midX - (bounds.width + inset) / 2
+    }
+
+    private static func pagesAreTaller(
+        than bounds: NSRect, in clip: NSClipView
+    ) -> Bool {
+        guard let pages = clip.documentView?.frame else { return false }
+        let insets = clip.contentInsets
+        return pages.height > bounds.height - insets.top - insets.bottom + 0.5
     }
 }
