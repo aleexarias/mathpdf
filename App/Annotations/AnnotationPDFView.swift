@@ -17,10 +17,10 @@ final class AnnotationPDFView: PDFView {
     /// Delivers mouse moves, for the cursor over a text box's edge.
     private var mouseMovedTracking: NSTrackingArea?
 
-    // The view reaches under the translucent toolbar, and in Single Page
-    // Continuous under the sidebar, but fits the pages to the uncovered area.
-    // PDFKit handles a top inset well but not a left one, so the sidebar is
-    // allowed for with extra left page margin instead.
+    // The view reaches under the translucent toolbar and sidebar. The scroll
+    // view's insets keep the pages clear of them, and the pages are fitted
+    // to the uncovered area. `ClipConstraint` makes PDFKit honour the left
+    // inset.
 
     /// The fit the pages are kept at as the uncovered area changes (Zoom to
     /// Fit). Nil once the zoom is set by hand.
@@ -49,7 +49,7 @@ final class AnnotationPDFView: PDFView {
     /// nudges the pages at each step, and re-anchoring would accumulate them.
     private var sidebarAnchor: ZoomAnchor?
     private var sidebarSettling: Task<Void, Never>?
-    private var lastUncoveredLeft: CGFloat?
+    private var lastCoveredLeft: CGFloat?
     private var scrollMonitor: Any?
     /// Nil until the scroll under way has a direction.
     private var pageScroll: PageScroll?
@@ -57,8 +57,6 @@ final class AnnotationPDFView: PDFView {
     /// The sidebar opening, closing or being resized changes only the safe
     /// area, which doesn't lay this view out again, so it's watched directly.
     private var safeAreaObservation: NSKeyValueObservation?
-    private static let standardMargins = NSEdgeInsets(
-        top: 4.75, left: 4, bottom: 4.75, right: 4)
 
     // MARK: Geometry
 
@@ -83,9 +81,8 @@ final class AnnotationPDFView: PDFView {
     /// the same wherever the document is scrolled to.
     func fitScale(for fit: PageFit) -> CGFloat {
         guard let documentView else { return scaleFactor }
-        let margins = Self.standardMargins
-        let width =
-            documentView.frame.width - (pageBreakMargins.left - margins.left)
+        let margins = pageBreakMargins
+        let width = documentView.frame.width
         guard width > 0 else { return scaleFactor }
         let scale = fit.scale(
             width: width,
@@ -107,7 +104,7 @@ final class AnnotationPDFView: PDFView {
         return height
     }
 
-    /// Goes back to the fit's zoom when the area or the margins have changed.
+    /// Goes back to the fit's zoom when the uncovered area has changed.
     private func applyFit() {
         guard let fit else { return }
         let scale = fitScale(for: fit)
@@ -120,7 +117,7 @@ final class AnnotationPDFView: PDFView {
             NSEvent.removeMonitor(scrollMonitor)
             self.scrollMonitor = nil
         }
-        guard window != nil else { return }
+        guard window != nil else { return cancelZoomAnimation() }
         safeAreaObservation = observe(\.safeAreaInsets) { view, _ in
             MainActor.assumeIsolated { view.updateGeometry() }
         }
@@ -133,6 +130,7 @@ final class AnnotationPDFView: PDFView {
             let clip = documentView.enclosingScrollView?.contentView,
             observedClip !== clip
         {
+            ClipConstraint.install(on: clip)
             clip.postsBoundsChangedNotifications = true
             NotificationCenter.default.addObserver(
                 self, selector: #selector(clipBoundsChanged),
@@ -164,7 +162,7 @@ final class AnnotationPDFView: PDFView {
         onLayout()
     }
 
-    /// Keeps the left margin, the insets and the fit in line with the
+    /// Keeps the insets and the fit in line with the
     /// sidebar, toolbar and zoom.
     func updateGeometry() {
         guard !isUpdatingGeometry,
@@ -175,43 +173,40 @@ final class AnnotationPDFView: PDFView {
 
         let covered = safeAreaInsets
         // When the sidebar opens or closes, what was at the centre moves to
-        // the new centre. The edge is taken in window coordinates: in layouts
-        // that stop at the sidebar, it moves the view rather than covering it.
-        let uncoveredLeft = covered.left + convert(bounds, to: nil).minX
+        // the new centre.
         let sidebarChanged =
-            lastUncoveredLeft.map { abs($0 - uncoveredLeft) > 0.5 } ?? false
+            lastCoveredLeft.map { abs($0 - covered.left) > 0.5 } ?? false
         if sidebarChanged { sidebarMoved() }
         let anchorToKeep = sidebarAnchor
         defer {
-            lastUncoveredLeft = uncoveredLeft
+            lastCoveredLeft = covered.left
             centerAnchor = zoomAnchor()
         }
         if scrollView.automaticallyAdjustsContentInsets
             || abs(scrollView.contentInsets.top - covered.top) > 0.5
             || abs(scrollView.contentInsets.bottom - covered.bottom) > 0.5
-            || scrollView.contentInsets.left != 0
+            || abs(scrollView.contentInsets.left - covered.left) > 0.5
         {
             scrollView.automaticallyAdjustsContentInsets = false
             scrollView.contentInsets = NSEdgeInsets(
-                top: covered.top, left: 0, bottom: covered.bottom, right: 0)
+                top: covered.top, left: covered.left, bottom: covered.bottom,
+                right: 0)
         }
         applyFit()
-        // Page margins are in page units, so the sidebar's width in them
-        // depends on the zoom.
-        let left = Self.standardMargins.left + covered.left / scaleFactor
-        if abs(pageBreakMargins.left - left) > 0.25 {
-            var margins = Self.standardMargins
-            margins.left = left
-            pageBreakMargins = margins
-            layoutDocumentView()  // so the centring below sees the new width
-            applyFit()
-        }
         if let anchorToKeep {
             restore(
                 anchorToKeep,
                 at: CGPoint(x: uncoveredRect.midX, y: uncoveredRect.midY))
         }
         centerIfNarrower()
+    }
+
+    /// The scroll view's left inset in the clip view's units.
+    private func leftInset(of scrollView: NSScrollView) -> CGFloat {
+        let clip = scrollView.contentView
+        guard clip.frame.width > 0 else { return 0 }
+        return scrollView.contentInsets.left * clip.bounds.width
+            / clip.frame.width
     }
 
     private func sidebarMoved() {
@@ -225,18 +220,18 @@ final class AnnotationPDFView: PDFView {
         }
     }
 
-    /// Pages no wider than the view can't be scrolled sideways, so they're
-    /// held centred: with the sidebar margin, that's the middle of the
-    /// uncovered area. PDFKit centres pages itself only when it lays them
-    /// out, not as the view's width changes.
+    /// Pages that fit beside the sidebar can't be scrolled sideways, so
+    /// they're held in the middle of the uncovered area. PDFKit centres pages
+    /// itself when it lays them out, but in the whole view.
     private func centerIfNarrower() {
         guard let documentView,
             let scrollView = documentView.enclosingScrollView
         else { return }
         let clip = scrollView.contentView
         let pages = documentView.frame
-        guard pages.width <= clip.bounds.width + 0.5 else { return }
-        let x = pages.midX - clip.bounds.width / 2
+        let inset = leftInset(of: scrollView)
+        guard pages.width <= clip.bounds.width - inset + 0.5 else { return }
+        let x = pages.midX - (clip.bounds.width + inset) / 2
         guard abs(clip.bounds.origin.x - x) > 0.5 else { return }
         clip.scroll(to: NSPoint(x: x, y: clip.bounds.origin.y))
         scrollView.reflectScrolledClipView(clip)
@@ -252,6 +247,59 @@ final class AnnotationPDFView: PDFView {
         scaleFactor = min(max(scale, minScaleFactor), maxScaleFactor)
         updateGeometry()
         if let anchor { restore(anchor) }
+    }
+
+    private struct ZoomAnimation {
+        let link: CADisplayLink
+        let anchor: ZoomAnchor?
+        let start: CGFloat
+        let end: CGFloat
+        let began: CFTimeInterval
+        let completion: (() -> Void)?
+    }
+    private var zoomAnimation: ZoomAnimation?
+    private static let zoomDuration: CFTimeInterval = 0.32
+
+    /// Eases the zoom to `target`, around the centre of the uncovered area.
+    /// It moves evenly on a log scale, so zooming in and out feel the same,
+    /// and a step is taken for each frame the display shows: a timer drifts
+    /// against the display and stutters.
+    func animateZoom(to target: CGFloat, then completion: (() -> Void)? = nil)
+    {
+        cancelZoomAnimation()
+        fit = nil
+        let end = min(max(target, minScaleFactor), maxScaleFactor)
+        guard window != nil, scaleFactor > 0, abs(end - scaleFactor) > 0.001
+        else {
+            completion?()
+            return
+        }
+        let link = displayLink(target: self, selector: #selector(zoomStep))
+        zoomAnimation = ZoomAnimation(
+            link: link, anchor: zoomAnchor(), start: scaleFactor, end: end,
+            began: CACurrentMediaTime(), completion: completion)
+        link.add(to: .main, forMode: .common)
+    }
+
+    /// Stops where it is; the animation's completion isn't called.
+    func cancelZoomAnimation() {
+        zoomAnimation?.link.invalidate()
+        zoomAnimation = nil
+    }
+
+    @objc private func zoomStep(_ link: CADisplayLink) {
+        guard let zoom = zoomAnimation else { return link.invalidate() }
+        let time = min(
+            1, max(0, (link.targetTimestamp - zoom.began) / Self.zoomDuration))
+        // ease in and out: no sudden start or stop
+        let progress = time * time * (3 - 2 * time)
+        scaleFactor = zoom.start * pow(zoom.end / zoom.start, progress)
+        updateGeometry()
+        if let anchor = zoom.anchor { restore(anchor) }
+        if time >= 1 {
+            cancelZoomAnimation()
+            zoom.completion?()
+        }
     }
 
     /// Pinching zooms around the centre of the uncovered area.
@@ -340,7 +388,9 @@ final class AnnotationPDFView: PDFView {
         let bottom = scrollView.contentInsets.bottom * unit
         let (low, high) = clip.isFlipped ? (top, bottom) : (bottom, top)
         return (
-            limits(document.minX, document.maxX - clip.bounds.width),
+            limits(
+                document.minX - leftInset(of: scrollView),
+                document.maxX - clip.bounds.width),
             limits(
                 document.minY - low,
                 document.maxY - clip.bounds.height + high)

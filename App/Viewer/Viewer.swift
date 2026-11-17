@@ -12,7 +12,6 @@ final class Viewer: NSObject {
     @ObservationIgnored lazy var sidebar = PageSidebar(viewer: self)
     private(set) var pageCount: Int
     private(set) var pageIndex = 0
-    private(set) var displayMode = PDFDisplayMode.singlePageContinuous
     var isChoosingPage = false
 
     private(set) var matches: [PDFSelection] = []
@@ -21,7 +20,6 @@ final class Viewer: NSObject {
     private(set) var searchedText = ""
     /// The toolbar's search field, so Edit > Find can focus it.
     @ObservationIgnored weak var searchField: NSSearchField?
-    @ObservationIgnored private var zoomAnimation: Task<Void, Never>?
     /// False until the view is back where the file was last left, so the
     /// view it opens with isn't recorded over that.
     @ObservationIgnored private var isViewRestored = false
@@ -57,9 +55,6 @@ final class Viewer: NSObject {
             self, selector: #selector(recordView), name: .PDFViewScaleChanged,
             object: pdfView)
         NotificationCenter.default.addObserver(
-            self, selector: #selector(displayModeChanged),
-            name: .PDFViewDisplayModeChanged, object: pdfView)
-        NotificationCenter.default.addObserver(
             self, selector: #selector(documentUnlocked),
             name: .PDFDocumentDidUnlock, object: document)
         pdfView.viewer = self
@@ -83,10 +78,6 @@ final class Viewer: NSObject {
     static let pageBackground = NSColor(name: "PageBackground") { appearance in
         appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
             ? NSColor(white: 0.27, alpha: 1) : NSColor(white: 0.86, alpha: 1)
-    }
-
-    @objc private func displayModeChanged() {
-        displayMode = pdfView.displayMode
     }
 
     @objc private func documentUnlocked() {
@@ -114,7 +105,8 @@ final class Viewer: NSObject {
     }
 
     func turnPage(by offset: Int) {
-        let showsSpreads = [.twoUp, .twoUpContinuous].contains(displayMode)
+        let showsSpreads = [.twoUp, .twoUpContinuous].contains(
+            pdfView.displayMode)
         guard
             let target = PageStep.target(
                 from: pageIndex, by: offset,
@@ -189,7 +181,7 @@ final class Viewer: NSObject {
         let anchor = pdfView.zoomAnchor()
         let oldIndex = anchor.flatMap { pdfView.document?.index(for: $0.page) }
         let scale = pdfView.scaleFactor
-        zoomAnimation?.cancel()
+        pdfView.cancelZoomAnimation()
         clearSearch()
         closeVersions()
         editor.documentReplaced()
@@ -248,44 +240,11 @@ final class Viewer: NSObject {
         }
     }
 
-    /// Eases the zoom to `target` over about a third of a second instead of
-    /// jumping. It moves evenly on a log scale, so zooming in and out feel the
-    /// same, and is timed by the clock, so it takes the same time even when
-    /// the Mac is busy.
     private func animateZoom(
         to target: CGFloat, then completion: (() -> Void)? = nil
     ) {
         guard !editor.isEditingItem else { return NSSound.beep() }
-        zoomAnimation?.cancel()
-        pdfView.fit = nil
-        // Zoom around the centre of what's visible, not counting what's under
-        // the sidebar.
-        let anchor = pdfView.zoomAnchor()
-        let start = pdfView.scaleFactor
-        let end = min(
-            max(target, pdfView.minScaleFactor), pdfView.maxScaleFactor)
-        guard start > 0, abs(end - start) > 0.001 else {
-            completion?()
-            return
-        }
-        zoomAnimation = Task { [weak self] in
-            let duration = Duration.milliseconds(320)
-            let clock = ContinuousClock()
-            let started = clock.now
-            while true {
-                try? await Task.sleep(for: .milliseconds(16))
-                guard !Task.isCancelled, let self else { return }
-                let time = min(1, (clock.now - started) / duration)
-                // ease in and out: no sudden start or stop
-                let progress = time * time * (3 - 2 * time)
-                self.pdfView.scaleFactor = start * pow(end / start, progress)
-                // the sidebar margin follows the zoom
-                self.pdfView.updateGeometry()
-                if let anchor { self.pdfView.restore(anchor) }
-                if time >= 1 { break }
-            }
-            completion?()
-        }
+        pdfView.animateZoom(to: target, then: completion)
     }
 
     // MARK: Search
