@@ -398,11 +398,11 @@ final class AnnotationPDFView: PDFView {
         }
         // Not `documentRect`, which is never smaller than the clip view.
         let document = documentView.frame
-        // Insets are in points, the clip view's bounds in page units.
-        let unit = clip.bounds.width / clip.frame.width
-        let top = scrollView.contentInsets.top * unit
-        let bottom = scrollView.contentInsets.bottom * unit
-        let (low, high) = clip.isFlipped ? (top, bottom) : (bottom, top)
+        // In page units, with room for a horizontal scroll bar.
+        let insets = clip.contentInsets
+        let (low, high) =
+            clip.isFlipped
+            ? (insets.top, insets.bottom) : (insets.bottom, insets.top)
         return (
             limits(
                 document.minX - leftInset(of: scrollView),
@@ -528,7 +528,6 @@ final class AnnotationPDFView: PDFView {
         let before = viewer.pageIndex
         viewer.turnPage(by: up ? -1 : 1)
         guard viewer.pageIndex != before else { return }
-        layoutDocumentView()
         let clip = scrollView.contentView
         guard let range = scrollLimits(of: scrollView).y else { return }
         let y = up == clip.isFlipped ? range.upperBound : range.lowerBound
@@ -536,13 +535,14 @@ final class AnnotationPDFView: PDFView {
         scrollView.reflectScrolledClipView(clip)
     }
 
-    /// Scrolls the top of `page` to the top of the uncovered area. PDFKit's
+    /// Scrolls the top of `page` to the top of the uncovered area, as far
+    /// below it as the first page is at the top of the document. PDFKit's
     /// `go(to:)` does too, but in two-page layouts it ignores the toolbar.
     func showTop(of page: PDFPage) {
         let shown = convert(page.bounds(for: displayBox), from: page)
         let top = CGPoint(
             x: shown.midX, y: isFlipped ? shown.minY : shown.maxY)
-        let margin = pageBreakMargins.top * scaleFactor
+        let margin = marginAboveFirstPage()
         let area = uncoveredRect
         restore(
             ZoomAnchor(
@@ -550,6 +550,17 @@ final class AnnotationPDFView: PDFView {
             at: CGPoint(
                 x: top.x,
                 y: isFlipped ? area.minY + margin : area.maxY - margin))
+    }
+
+    /// Single Page Continuous leaves one page break margin above the first
+    /// page, the other layouts two.
+    private func marginAboveFirstPage() -> CGFloat {
+        guard let documentView, let first = document?.page(at: 0) else {
+            return 0
+        }
+        let pages = convert(documentView.bounds, from: documentView)
+        let page = convert(first.bounds(for: displayBox), from: first)
+        return isFlipped ? page.minY - pages.minY : pages.maxY - page.maxY
     }
 
     /// Scrolls as little as needed, if at all, to show `rect` on `page` clear

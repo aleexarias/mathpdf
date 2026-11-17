@@ -55,6 +55,9 @@ final class Viewer: NSObject {
             self, selector: #selector(recordView), name: .PDFViewScaleChanged,
             object: pdfView)
         NotificationCenter.default.addObserver(
+            self, selector: #selector(displayModeChanged),
+            name: .PDFViewDisplayModeChanged, object: pdfView)
+        NotificationCenter.default.addObserver(
             self, selector: #selector(documentUnlocked),
             name: .PDFDocumentDidUnlock, object: document)
         pdfView.viewer = self
@@ -86,6 +89,15 @@ final class Viewer: NSObject {
         sidebar.reload()
     }
 
+    /// PDFKit keeps the page, but where on it depends on the layout and
+    /// leaves the page's top under the toolbar or out of view.
+    @objc private func displayModeChanged() {
+        guard let page = pdfView.currentPage else { return }
+        pdfView.layoutDocumentView()
+        pdfView.updateGeometry()
+        pdfView.showTop(of: page)
+    }
+
     @objc private func pageChanged() {
         guard let page = pdfView.currentPage, let document = pdfView.document
         else { return }
@@ -101,6 +113,8 @@ final class Viewer: NSObject {
             let page = pdfView.document?.page(at: index)
         else { return false }
         pdfView.go(to: page)
+        pdfView.layoutDocumentView()
+        pdfView.showTop(of: page)
         return true
     }
 
