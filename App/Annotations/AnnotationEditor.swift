@@ -58,8 +58,8 @@ final class AnnotationEditor: NSObject {
 
         func clamped(_ offset: CGSize) -> CGSize {
             CGSize(
-                width: min(max(offset.width, limits.minX), limits.maxX),
-                height: min(max(offset.height, limits.minY), limits.maxY))
+                width: offset.width.clamped(to: limits.minX...limits.maxX),
+                height: offset.height.clamped(to: limits.minY...limits.maxY))
         }
     }
 
@@ -184,9 +184,9 @@ final class AnnotationEditor: NSObject {
     func useTool(at location: (page: PDFPage, point: CGPoint)?) {
         guard let tool, session.canEdit else { return }
         if !hasTextSelection, let (page, point) = location,
-            let document = pdfView.document,
+            let pageIndex = pdfView.index(of: page),
             let hit = session.annotations.annotation(
-                at: point, pageIndex: document.index(for: page))
+                at: point, pageIndex: pageIndex)
         {
             session.select(hit.itemID)
             return
@@ -314,9 +314,9 @@ final class AnnotationEditor: NSObject {
     /// selection.
     private func addNoteToSelection() {
         guard let selection = pdfView.currentSelection,
-            let document = pdfView.document,
             let lastLine = selection.selectionsByLine().last,
-            let page = lastLine.pages.first
+            let page = lastLine.pages.first,
+            let pageIndex = pdfView.index(of: page)
         else { return }
         let anchors = selection.selectionsByLine().compactMap { line in
             line.pages.first == page ? line.bounds(for: page) : nil
@@ -331,7 +331,7 @@ final class AnnotationEditor: NSObject {
         pdfView.clearSelection()
         guard
             let id = session.beginNote(
-                pageIndex: document.index(for: page), iconRect: icon,
+                pageIndex: pageIndex, iconRect: icon,
                 anchorRects: anchors,
                 color: Palette.noteYellow)
         else { return }
@@ -401,12 +401,10 @@ final class AnnotationEditor: NSObject {
         let area = pdfView.uncoveredRect
         let centre = CGPoint(x: area.midX, y: area.midY)
         guard let page = pdfView.page(for: centre, nearest: true),
-            let document = pdfView.document
+            let pageIndex = pdfView.index(of: page)
         else { return nil }
         session.select(nil)
-        return (
-            page, document.index(for: page), pdfView.convert(centre, to: page)
-        )
+        return (page, pageIndex, pdfView.convert(centre, to: page))
     }
 
     // MARK: Mouse (from AnnotationPDFView)
@@ -417,7 +415,7 @@ final class AnnotationEditor: NSObject {
         on page: PDFPage, at point: CGPoint, clickCount: Int,
         timestamp: TimeInterval
     ) -> Bool {
-        guard session.canEdit, let document = pdfView.document else {
+        guard session.canEdit, let pageIndex = pdfView.index(of: page) else {
             return false
         }
         editOnMouseUp = nil
@@ -431,7 +429,6 @@ final class AnnotationEditor: NSObject {
             session.select(nil)
             return true
         }
-        let pageIndex = document.index(for: page)
         if startSettingWidth(at: point, on: page, pageIndex: pageIndex) {
             return true
         }
@@ -551,16 +548,16 @@ final class AnnotationEditor: NSObject {
     }
 
     func isOnTextBoxEdge(_ point: CGPoint, on page: PDFPage) -> Bool {
-        guard session.canEdit, !popover.isOpen, let document = pdfView.document
+        guard session.canEdit, !popover.isOpen,
+            let pageIndex = pdfView.index(of: page)
         else { return false }
-        return textBox(
-            atRightEdge: point, pageIndex: document.index(for: page)) != nil
+        return textBox(atRightEdge: point, pageIndex: pageIndex) != nil
     }
 
     /// Whether `point` is on a note, formula or text box.
     func isOnBox(_ point: CGPoint, on page: PDFPage) -> Bool {
-        guard let document = pdfView.document else { return false }
-        return box(at: point, pageIndex: document.index(for: page)) != nil
+        guard let pageIndex = pdfView.index(of: page) else { return false }
+        return box(at: point, pageIndex: pageIndex) != nil
     }
 
     /// The topmost note, formula or text box at `point`.
@@ -596,9 +593,9 @@ final class AnnotationEditor: NSObject {
     }
 
     func contextMenu(on page: PDFPage, at point: CGPoint) -> NSMenu? {
-        guard session.canEdit, let document = pdfView.document,
+        guard session.canEdit, let pageIndex = pdfView.index(of: page),
             let hit = session.annotations.annotation(
-                at: point, pageIndex: document.index(for: page))
+                at: point, pageIndex: pageIndex)
         else { return nil }
         session.select(hit.itemID)
         let menu = NSMenu()

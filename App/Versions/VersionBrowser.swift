@@ -11,6 +11,9 @@ struct VersionBrowser: View {
     @State private var history: VersionHistory
     @State private var scrollLink = PreviewScrollLink()
 
+    /// Also the size the window opens at.
+    static let idealSize = CGSize(width: 1150, height: 760)
+
     init(session: DocumentSession, startPage: Int, close: @escaping () -> Void)
     {
         self.session = session
@@ -73,7 +76,8 @@ struct VersionBrowser: View {
             .padding(12)
         }
         .frame(
-            minWidth: 900, idealWidth: 1150, minHeight: 560, idealHeight: 760
+            minWidth: 900, idealWidth: Self.idealSize.width, minHeight: 560,
+            idealHeight: Self.idealSize.height
         )
         .task { await history.load() }
     }

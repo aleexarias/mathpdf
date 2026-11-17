@@ -9,13 +9,13 @@ final class AnnotationPDFView: PDFView {
     weak var editor: AnnotationEditor?
     weak var viewer: Viewer?
 
-    private var drag: (page: PDFPage, start: CGPoint)?
+    var drag: (page: PDFPage, start: CGPoint)?
     /// Set while PDFView handles a click or text selection that the active
     /// tool should use when it ends. Cleared once used, so a gesture is never
     /// used twice.
-    private var toolGestureActive = false
+    var toolGestureActive = false
     /// Delivers mouse moves, for the cursor over a text box's edge.
-    private var mouseMovedTracking: NSTrackingArea?
+    var mouseMovedTracking: NSTrackingArea?
 
     // The view reaches under the translucent toolbar and sidebar. The scroll
     // view's insets keep the pages clear of them, and the pages are fitted
@@ -52,13 +52,14 @@ final class AnnotationPDFView: PDFView {
     private var lastCoveredLeft: CGFloat?
     /// Page units per point when the scroll view last tiled.
     private var tiledUnit: CGFloat?
-    private var scrollMonitor: Any?
+    var scrollMonitor: Any?
     /// Nil until the scroll under way has a direction.
-    private var pageScroll: PageScroll?
-    private var lastScrollTime: TimeInterval = 0
+    var pageScroll: PageScroll?
+    var lastScrollTime: TimeInterval = 0
     /// The sidebar opening, closing or being resized changes only the safe
     /// area, which doesn't lay this view out again, so it's watched directly.
     private var safeAreaObservation: NSKeyValueObservation?
+    var zoomAnimation: ZoomAnimation?
 
     // MARK: Geometry
 
@@ -78,19 +79,38 @@ final class AnnotationPDFView: PDFView {
         PageFrame(box: page.bounds(for: displayBox), rotation: page.rotation)
     }
 
+    func index(of page: PDFPage) -> Int? {
+        document?.index(for: page)
+    }
+
     /// The zoom at which the pages, with their usual margins, fit the
     /// uncovered area. The widest and the tallest page count, so the zoom is
     /// the same wherever the document is scrolled to.
     func fitScale(for fit: PageFit) -> CGFloat {
         guard let documentView else { return scaleFactor }
-        let margins = pageBreakMargins
         let width = documentView.frame.width
         guard width > 0 else { return scaleFactor }
         let scale = fit.scale(
             width: width,
-            height: tallestPageHeight() + margins.top + margins.bottom,
+            height: tallestPageHeight() + verticalMargins(of: documentView),
             in: uncoveredRect.size)
-        return min(max(scale, minScaleFactor), maxScaleFactor)
+        return scale.clamped(to: scaleRange)
+    }
+
+    var scaleRange: ClosedRange<CGFloat> { minScaleFactor...maxScaleFactor }
+
+    /// The room a whole-page fit leaves above and below a page. Single Page
+    /// and Two Pages hold only what's shown in the document view, so it
+    /// tells how much. In the continuous layouts it's the margin the page is
+    /// shown below (see `showTop`), and a page break's under it.
+    private func verticalMargins(of documentView: NSView) -> CGFloat {
+        guard [.singlePage, .twoUp].contains(displayMode), let currentPage
+        else {
+            return marginAboveFirstPage() / scaleFactor
+                + pageBreakMargins.bottom
+        }
+        return documentView.frame.height
+            - pageFrame(of: currentPage).shownSize.height
     }
 
     private func tallestPageHeight() -> CGFloat {
@@ -205,19 +225,17 @@ final class AnnotationPDFView: PDFView {
     }
 
     /// The scroll view's left inset in the clip view's units.
-    private func leftInset(of scrollView: NSScrollView) -> CGFloat {
-        let clip = scrollView.contentView
-        guard clip.frame.width > 0 else { return 0 }
-        return scrollView.contentInsets.left * clip.bounds.width
-            / clip.frame.width
+    func leftInset(of scrollView: NSScrollView) -> CGFloat {
+        scrollView.contentInsets.left
+            * (scrollView.contentView.pageUnitsPerPoint ?? 0)
     }
 
     /// The clip view keeps the insets in page units, converted only when the
     /// scroll view tiles, which a change of zoom doesn't make it do.
     private func convertInsets(of scrollView: NSScrollView) {
-        let clip = scrollView.contentView
-        guard clip.frame.width > 0 else { return }
-        let unit = clip.bounds.width / clip.frame.width
+        guard let unit = scrollView.contentView.pageUnitsPerPoint else {
+            return
+        }
         guard tiledUnit.map({ abs($0 - unit) > 0.0001 }) ?? true else {
             return
         }
@@ -239,7 +257,7 @@ final class AnnotationPDFView: PDFView {
     /// Pages that fit beside the sidebar can't be scrolled sideways, so
     /// they're held in the middle of the uncovered area. PDFKit centres pages
     /// itself when it lays them out, but in the whole view.
-    private func centerIfNarrower() {
+    func centerIfNarrower() {
         guard let documentView,
             let scrollView = documentView.enclosingScrollView
         else { return }
@@ -252,560 +270,11 @@ final class AnnotationPDFView: PDFView {
         clip.scroll(to: NSPoint(x: x, y: clip.bounds.origin.y))
         scrollView.reflectScrolledClipView(clip)
     }
-
-    // MARK: Zoom
-
-    /// Sets the zoom straight away, keeping what's at the centre of the
-    /// uncovered area in place.
-    func zoom(to scale: CGFloat) {
-        fit = nil
-        let anchor = zoomAnchor()
-        scaleFactor = min(max(scale, minScaleFactor), maxScaleFactor)
-        updateGeometry()
-        if let anchor { restore(anchor) }
-    }
-
-    private struct ZoomAnimation {
-        let link: CADisplayLink
-        let anchor: ZoomAnchor?
-        let start: CGFloat
-        let end: CGFloat
-        let began: CFTimeInterval
-        let completion: (() -> Void)?
-    }
-    private var zoomAnimation: ZoomAnimation?
-    private static let zoomDuration: CFTimeInterval = 0.32
-
-    /// Eases the zoom to `target`, around the centre of the uncovered area.
-    /// It moves evenly on a log scale, so zooming in and out feel the same,
-    /// and a step is taken for each frame the display shows: a timer drifts
-    /// against the display and stutters.
-    func animateZoom(to target: CGFloat, then completion: (() -> Void)? = nil)
-    {
-        cancelZoomAnimation()
-        fit = nil
-        let end = min(max(target, minScaleFactor), maxScaleFactor)
-        guard window != nil, scaleFactor > 0, abs(end - scaleFactor) > 0.001
-        else {
-            completion?()
-            return
-        }
-        let link = displayLink(target: self, selector: #selector(zoomStep))
-        zoomAnimation = ZoomAnimation(
-            link: link, anchor: zoomAnchor(), start: scaleFactor, end: end,
-            began: CACurrentMediaTime(), completion: completion)
-        link.add(to: .main, forMode: .common)
-    }
-
-    /// Stops where it is; the animation's completion isn't called.
-    func cancelZoomAnimation() {
-        zoomAnimation?.link.invalidate()
-        zoomAnimation = nil
-    }
-
-    @objc private func zoomStep(_ link: CADisplayLink) {
-        guard let zoom = zoomAnimation else { return link.invalidate() }
-        let time = min(
-            1, max(0, (link.targetTimestamp - zoom.began) / Self.zoomDuration))
-        // ease in and out: no sudden start or stop
-        let progress = time * time * (3 - 2 * time)
-        scaleFactor = zoom.start * pow(zoom.end / zoom.start, progress)
-        updateGeometry()
-        if let anchor = zoom.anchor { restore(anchor) }
-        if time >= 1 {
-            cancelZoomAnimation()
-            zoom.completion?()
-        }
-    }
-
-    /// Pinching zooms around the centre of the uncovered area.
-    override func magnify(with event: NSEvent) {
-        guard editor?.isEditingItem != true else { return }
-        zoom(to: scaleFactor * (1 + event.magnification))
-    }
-
-    override func smartMagnify(with event: NSEvent) {
-        guard editor?.isEditingItem != true else { return }
-        fit = nil
-        super.smartMagnify(with: event)
-    }
-
-    /// A point on a page and where it is in the view, kept still while
-    /// zooming.
-    struct ZoomAnchor {
-        let page: PDFPage
-        let pagePoint: CGPoint
-        let viewPoint: CGPoint
-    }
-
-    /// The centre of the uncovered area.
-    func zoomAnchor() -> ZoomAnchor? {
-        let center = CGPoint(x: uncoveredRect.midX, y: uncoveredRect.midY)
-        guard let page = page(for: center, nearest: true) else { return nil }
-        return ZoomAnchor(
-            page: page, pagePoint: convert(center, to: page), viewPoint: center
-        )
-    }
-
-    /// Scrolls so the anchor's page point is back where it was in the view, or
-    /// at `viewPoint`.
-    func restore(_ anchor: ZoomAnchor, at viewPoint: CGPoint? = nil) {
-        let target = viewPoint ?? anchor.viewPoint
-        guard let documentView,
-            let scrollView = documentView.enclosingScrollView
-        else { return }
-        let clip = scrollView.contentView
-        let scale =
-            clip.bounds.width > 0
-            ? clip.frame.width / clip.bounds.width : scaleFactor
-        let now = convert(anchor.pagePoint, from: anchor.page)
-        var origin = clip.bounds.origin
-        origin.x += (now.x - target.x) / scale
-        origin.y +=
-            (now.y - target.y) / scale
-            * (documentView.isFlipped == isFlipped ? 1 : -1)
-        // Never past the document's edges: that would hold only until the next
-        // layout, then snap back.
-        origin = clamped(origin, in: scrollView)
-        clip.scroll(to: origin)
-        scrollView.reflectScrolledClipView(clip)
-        centerIfNarrower()
-    }
-
-    /// Avoids `constrainBoundsRect`, which in two-page layouts also moves
-    /// positions well inside the document. Where the document fits, PDFKit's
-    /// own position is kept, as it centres the pages there.
-    private func clamped(
-        _ origin: NSPoint, in scrollView: NSScrollView
-    ) -> NSPoint {
-        let current = scrollView.contentView.bounds.origin
-        let limits = scrollLimits(of: scrollView)
-        return NSPoint(
-            x: limits.x.map { origin.x.clamped(to: $0) } ?? current.x,
-            y: limits.y.map { origin.y.clamped(to: $0) } ?? current.y)
-    }
-
-    /// The clip view origins the document can be scrolled between; nil on
-    /// an axis it fits along.
-    private func scrollLimits(
-        of scrollView: NSScrollView
-    ) -> (x: ClosedRange<CGFloat>?, y: ClosedRange<CGFloat>?) {
-        let clip = scrollView.contentView
-        guard let documentView, clip.frame.width > 0 else { return (nil, nil) }
-        func limits(_ least: CGFloat, _ most: CGFloat) -> ClosedRange<CGFloat>?
-        {
-            most > least + 0.5 ? least...most : nil
-        }
-        // Not `documentRect`, which is never smaller than the clip view.
-        let document = documentView.frame
-        // In page units, with room for a horizontal scroll bar.
-        let insets = clip.contentInsets
-        let (low, high) =
-            clip.isFlipped
-            ? (insets.top, insets.bottom) : (insets.bottom, insets.top)
-        return (
-            limits(
-                document.minX - leftInset(of: scrollView),
-                document.maxX - clip.bounds.width),
-            limits(
-                document.minY - low,
-                document.maxY - clip.bounds.height + high)
-        )
-    }
-
-    // MARK: Scrolling
-
-    /// ⌘ + scroll zooms, and while a note or formula is being written,
-    /// scrolling does nothing. Scroll events go to PDFView's inner scroll
-    /// view, not to this view, so they're caught on their way to the window.
-    private func installScrollMonitor() {
-        scrollMonitor = NSEvent.addLocalMonitorForEvents(
-            matching: .scrollWheel
-        ) { [weak self] event in
-            // Scrolling away from the user zooms in, whatever the
-            // natural-scrolling setting.
-            let delta =
-                event.isDirectionInvertedFromDevice
-                ? -event.scrollingDeltaY : event.scrollingDeltaY
-            let zoomStep =
-                event.modifierFlags.contains(.command)
-                // a mouse wheel reports lines
-                ? (event.hasPreciseScrollingDeltas ? delta : delta * 8)
-                : nil
-            let windowNumber = event.windowNumber
-            let location = event.locationInWindow
-            let scroll = Scroll(event)
-            let handled = MainActor.assumeIsolated { () -> Bool in
-                guard let self, let window = self.window,
-                    window.windowNumber == windowNumber,
-                    self.bounds.contains(self.convert(location, from: nil))
-                else { return false }
-                if self.editor?.isEditingItem == true { return true }
-                guard let zoomStep else {
-                    return self.scrollWithinPage(scroll)
-                }
-                self.zoom(to: self.scaleFactor * exp(zoomStep * 0.01))
-                return true
-            }
-            return handled ? nil : event
-        }
-    }
-
-    /// The parts of a scroll event used on the main actor, which the
-    /// non-Sendable event can't be taken into.
-    private struct Scroll {
-        /// In points, positive towards the top and left of the document.
-        let deltaX: CGFloat
-        let deltaY: CGFloat
-        let time: TimeInterval
-        let begins: Bool
-        /// Trackpad events have a gesture or momentum phase; a wheel's don't.
-        let isWheel: Bool
-
-        init(_ event: NSEvent) {
-            // A wheel reports lines.
-            let unit: CGFloat = event.hasPreciseScrollingDeltas ? 1 : 10
-            deltaX = event.scrollingDeltaX * unit
-            deltaY = event.scrollingDeltaY * unit
-            time = event.timestamp
-            begins = event.phase.contains(.began)
-            isWheel = event.phase.isEmpty && event.momentumPhase.isEmpty
-        }
-    }
-
-    private enum PageScroll { case withinPage, turned }
-
-    /// In Single Page and Two Pages, PDFKit turns a page for every event that
-    /// runs past the end. Instead, a scroll that starts short of the end
-    /// stops there, and one that starts at the end turns one page. Every
-    /// event is handled here: once the scroll view gets a gesture's first
-    /// event, it takes the rest directly, bypassing this monitor.
-    private func scrollWithinPage(_ scroll: Scroll) -> Bool {
-        guard [.singlePage, .twoUp].contains(displayMode),
-            let scrollView = documentView?.enclosingScrollView,
-            scrollView.contentView.frame.width > 0
-        else { return false }
-        // A wheel's scroll ends at a pause.
-        if scroll.begins
-            || (scroll.isWheel && scroll.time - lastScrollTime > 0.3)
-        {
-            pageScroll = nil
-        }
-        lastScrollTime = scroll.time
-        let clip = scrollView.contentView
-        let unit = clip.bounds.width / clip.frame.width
-        let dy = scroll.deltaY * unit * (clip.isFlipped ? -1 : 1)
-        if pageScroll == nil, abs(scroll.deltaY) > abs(scroll.deltaX) {
-            // At a whole-page fit only the margin is left to scroll.
-            let margin = pageBreakMargins.top + pageBreakMargins.bottom
-            if room(towardsHigh: dy > 0, in: scrollView) > margin + 0.5 {
-                pageScroll = .withinPage
-            } else {
-                pageScroll = .turned
-                turnPage(up: scroll.deltaY > 0, in: scrollView)
-            }
-        }
-        guard pageScroll != .turned else { return true }
-        let origin = NSPoint(
-            x: clip.bounds.origin.x - scroll.deltaX * unit,
-            y: clip.bounds.origin.y + dy)
-        clip.scroll(to: clamped(origin, in: scrollView))
-        scrollView.reflectScrolledClipView(clip)
-        return true
-    }
-
-    private func room(
-        towardsHigh: Bool, in scrollView: NSScrollView
-    ) -> CGFloat {
-        guard let range = scrollLimits(of: scrollView).y else { return 0 }
-        let y = scrollView.contentView.bounds.origin.y
-        return towardsHigh ? range.upperBound - y : y - range.lowerBound
-    }
-
-    /// Shows the top of the next page, or the bottom of the previous one.
-    private func turnPage(up: Bool, in scrollView: NSScrollView) {
-        guard let viewer else { return }
-        let before = viewer.pageIndex
-        viewer.turnPage(by: up ? -1 : 1)
-        guard viewer.pageIndex != before else { return }
-        let clip = scrollView.contentView
-        guard let range = scrollLimits(of: scrollView).y else { return }
-        let y = up == clip.isFlipped ? range.upperBound : range.lowerBound
-        clip.scroll(to: NSPoint(x: clip.bounds.origin.x, y: y))
-        scrollView.reflectScrolledClipView(clip)
-    }
-
-    /// Scrolls the top of `page` to the top of the uncovered area, as far
-    /// below it as the first page is at the top of the document. PDFKit's
-    /// `go(to:)` does too, but in two-page layouts it ignores the toolbar.
-    func showTop(of page: PDFPage) {
-        let shown = convert(page.bounds(for: displayBox), from: page)
-        let top = CGPoint(
-            x: shown.midX, y: isFlipped ? shown.minY : shown.maxY)
-        let margin = marginAboveFirstPage()
-        let area = uncoveredRect
-        restore(
-            ZoomAnchor(
-                page: page, pagePoint: convert(top, to: page), viewPoint: top),
-            at: CGPoint(
-                x: top.x,
-                y: isFlipped ? area.minY + margin : area.maxY - margin))
-    }
-
-    /// Single Page Continuous leaves one page break margin above the first
-    /// page, the other layouts two.
-    private func marginAboveFirstPage() -> CGFloat {
-        guard let documentView, let first = document?.page(at: 0) else {
-            return 0
-        }
-        let pages = convert(documentView.bounds, from: documentView)
-        let page = convert(first.bounds(for: displayBox), from: first)
-        return isFlipped ? page.minY - pages.minY : pages.maxY - page.maxY
-    }
-
-    /// Scrolls as little as needed, if at all, to show `rect` on `page` clear
-    /// of the toolbar, the sidebar and the window's edges. Something already
-    /// in view doesn't move. If it's bigger than the view, its top-left corner
-    /// is shown.
-    func scrollToReveal(_ rect: CGRect, on page: PDFPage, margin: CGFloat = 12)
-    {
-        let shown = convert(rect, from: page)
-        let area = uncoveredRect.insetBy(dx: margin, dy: margin)
-        func shift(
-            _ low: CGFloat, _ high: CGFloat, within areaLow: CGFloat,
-            _ areaHigh: CGFloat, keepingLow: Bool
-        ) -> CGFloat {
-            if high - low > areaHigh - areaLow {
-                return keepingLow ? areaLow - low : areaHigh - high
-            }
-            if low < areaLow { return areaLow - low }
-            if high > areaHigh { return areaHigh - high }
-            return 0
-        }
-        let dx = shift(
-            shown.minX, shown.maxX, within: area.minX, area.maxX,
-            keepingLow: true)
-        let dy = shift(
-            shown.minY, shown.maxY, within: area.minY, area.maxY,
-            keepingLow: isFlipped)  // the top
-        guard dx != 0 || dy != 0 else { return }
-        let center = CGPoint(x: shown.midX, y: shown.midY)
-        restore(
-            ZoomAnchor(
-                page: page, pagePoint: convert(center, to: page),
-                viewPoint: center),
-            at: CGPoint(x: center.x + dx, y: center.y + dy))
-    }
-
-    /// After PDFKit's `go(to:)`, which in two-page layouts can leave what it
-    /// went to under the toolbar.
-    func keepInView(_ rect: CGRect, on page: PDFPage) {
-        layoutDocumentView()
-        scrollToReveal(rect, on: page)
-    }
-
-    // MARK: Mouse and keyboard
-
-    override func mouseDown(with event: NSEvent) {
-        guard let editor, let (page, point) = location(of: event),
-            editor.mouseDown(
-                on: page, at: point, clickCount: event.clickCount,
-                timestamp: event.timestamp)
-        else {
-            toolGestureActive = true
-            super.mouseDown(with: event)
-            // If PDFView tracked the whole click or selection itself, the
-            // mouse is already up; the mouse-up it handled says where.
-            if NSEvent.pressedMouseButtons & 1 == 0, let window {
-                let mouseUp = NSApp.currentEvent.flatMap {
-                    $0.type == .leftMouseUp ? $0 : nil
-                }
-                finishToolGesture(
-                    at: location(
-                        inWindow: mouseUp?.locationInWindow
-                            ?? window.mouseLocationOutsideOfEventStream))
-            }
-            return
-        }
-        window?.makeFirstResponder(self)
-        drag = (page, point)
-    }
-
-    override func mouseDragged(with event: NSEvent) {
-        guard let drag else { return super.mouseDragged(with: event) }
-        editor?.dragMoved(by: offset(of: event, from: drag))
-        if editor?.isSettingWidth == true { NSCursor.resizeLeftRight.set() }
-    }
-
-    /// PDFKit only updates the pointer when what's under it changes, so an
-    /// I-beam left by a text field would persist over a formula or text box.
-    override func mouseMoved(with event: NSEvent) {
-        super.mouseMoved(with: event)
-        guard let editor, let (page, point) = location(of: event) else {
-            return
-        }
-        if editor.isOnTextBoxEdge(point, on: page) {
-            NSCursor.resizeLeftRight.set()
-        } else if editor.isOnBox(point, on: page) {
-            NSCursor.arrow.set()
-        }
-    }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if mouseMovedTracking == nil {
-            let area = NSTrackingArea(
-                rect: .zero,
-                options: [.mouseMoved, .activeInKeyWindow, .inVisibleRect],
-                owner: self)
-            addTrackingArea(area)
-            mouseMovedTracking = area
-        }
-    }
-
-    override func mouseUp(with event: NSEvent) {
-        guard let drag else {
-            super.mouseUp(with: event)
-            finishToolGesture(at: location(of: event))
-            return
-        }
-        self.drag = nil
-        editor?.mouseUp(movedBy: offset(of: event, from: drag))
-    }
-
-    override func keyDown(with event: NSEvent) {
-        let handled: Bool
-        // Arrow keys also carry flags that aren't modifiers.
-        let modifiers = event.modifierFlags.intersection([
-            .command, .control, .option, .shift,
-        ])
-        switch event.specialKey {
-        case .delete?, .deleteForward?:
-            handled = editor?.deleteSelection() ?? false
-        case let key?
-        where (key == .leftArrow || key == .rightArrow) && modifiers.isEmpty:
-            viewer?.turnPage(by: key == .leftArrow ? -1 : 1)
-            handled = true
-        // Backs up the menu's ⌥⇥ and ⌥⇧⇥: ⇧⇥ arrives as back-tab, which a
-        // Tab key equivalent may not match.
-        case let key?
-        where (key == .tab || key == .backTab)
-            && modifiers.subtracting(.shift) == .option:
-            editor?.cycleColor(backwards: modifiers.contains(.shift))
-            handled = true
-        // Esc
-        default: handled = event.keyCode == 53 && editor?.cancel() == true
-        }
-        if !handled { super.keyDown(with: event) }
-    }
-
-    /// Only pages copied in mathpdf: a PDF from another app is more likely a
-    /// snippet than pages.
-    @objc func paste(_ sender: Any?) {
-        guard let viewer else { return }
-        Task {
-            await viewer.pasteFromClipboard(
-                at: viewer.pageIndex + 1, fromOtherApps: false)
-        }
-    }
-
-    /// Takes Paste only while there are pages to paste. PDFView enables any
-    /// menu item it's asked about, and its validation can't be extended from
-    /// Swift.
-    override func responds(to selector: Selector!) -> Bool {
-        if selector == #selector(paste(_:)) {
-            guard Thread.isMainThread else { return false }
-            return MainActor.assumeIsolated {
-                viewer?.canPastePages(fromOtherApps: false) == true
-            }
-        }
-        return super.responds(to: selector)
-    }
-
-    override func menu(for event: NSEvent) -> NSMenu? {
-        if let (page, point) = location(of: event),
-            let menu = editor?.contextMenu(on: page, at: point)
-        {
-            return menu
-        }
-        return super.menu(for: event)
-    }
-
-    /// A click or text selection finished: let the active tool use it, once.
-    private func finishToolGesture(
-        at location: (page: PDFPage, point: CGPoint)?
-    ) {
-        guard toolGestureActive else { return }
-        toolGestureActive = false
-        editor?.useTool(at: location)
-    }
-
-    private func location(of event: NSEvent) -> (
-        page: PDFPage, point: CGPoint
-    )? {
-        location(inWindow: event.locationInWindow)
-    }
-
-    private func location(inWindow windowPoint: NSPoint) -> (
-        page: PDFPage, point: CGPoint
-    )? {
-        let viewPoint = convert(windowPoint, from: nil)
-        guard let page = page(for: viewPoint, nearest: false) else {
-            return nil
-        }
-        return (page, convert(viewPoint, to: page))
-    }
-
-    private func offset(
-        of event: NSEvent, from drag: (page: PDFPage, start: CGPoint)
-    ) -> CGSize {
-        let point = convert(
-            convert(event.locationInWindow, from: nil), to: drag.page)
-        return CGSize(
-            width: point.x - drag.start.x, height: point.y - drag.start.y)
-    }
-
-    // MARK: Formula layers
-
-    /// PDFKit draws each custom-drawn annotation (a formula) in a layer of its
-    /// own and doesn't take that layer away when the annotation leaves its
-    /// page, so moved, edited and deleted formulas would stay on screen as
-    /// ghosts. This removes the layers of annotations that are no longer on a
-    /// page. The layers are PDFKit internals: every step is checked, and if
-    /// they change this does nothing.
-    func removeLayersOfRemovedAnnotations() {
-        let annotationSelector = NSSelectorFromString("annotation")
-        let idSelector = NSSelectorFromString("UUID")
-        let removeSelector = NSSelectorFromString(
-            "removePageLayerEffectForID:")
-        func visit(_ layer: CALayer, pageLayer: CALayer?) {
-            let pageLayer =
-                layer.responds(to: removeSelector) ? layer : pageLayer
-            for sublayer in layer.sublayers ?? [] {
-                visit(sublayer, pageLayer: pageLayer)
-            }
-            guard
-                NSStringFromClass(Swift.type(of: layer)).hasSuffix(
-                    "AnnotationEffect"),
-                layer.responds(to: annotationSelector),
-                let annotation = layer.perform(annotationSelector)?
-                    .takeUnretainedValue() as? PDFAnnotation,
-                annotation.page == nil
-            else { return }
-            // Through the page layer, so PDFKit forgets the layer too.
-            if let pageLayer, layer.responds(to: idSelector),
-                let id = layer.perform(idSelector)?.takeUnretainedValue()
-            {
-                pageLayer.perform(removeSelector, with: id)
-            }
-            if layer.superlayer != nil { layer.removeFromSuperlayer() }
-        }
-        if let layer { visit(layer, pageLayer: nil) }
-    }
 }
 
-extension Comparable {
-    fileprivate func clamped(to range: ClosedRange<Self>) -> Self {
-        min(max(self, range.lowerBound), range.upperBound)
+extension NSClipView {
+    /// The clip view's bounds are in page units, its frame in points.
+    var pageUnitsPerPoint: CGFloat? {
+        frame.width > 0 && bounds.width > 0 ? bounds.width / frame.width : nil
     }
 }

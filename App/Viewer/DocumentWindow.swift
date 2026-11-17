@@ -34,7 +34,6 @@ struct DocumentWindow: View {
             await session.load()
             // detach the read-only document's undo manager early
             _ = viewer?.editor.windowUndoManager()
-            await viewer?.keepSearchFieldVisible()
         }
         .onDisappear {
             ViewStateStore.shared.flush()

@@ -1,4 +1,5 @@
 import AppKit
+import MathPDFCore
 import PDFKit
 import SwiftUI
 
@@ -126,7 +127,7 @@ final class PageSidebar: NSObject, NSTableViewDataSource, NSTableViewDelegate,
 
     private func pageSize(_ row: Int) -> CGSize {
         guard let page = viewer?.pdfView.document?.page(at: row) else {
-            return CGSize(width: 612, height: 792)
+            return .usLetter
         }
         let box = page.bounds(for: .cropBox).size
         let size =

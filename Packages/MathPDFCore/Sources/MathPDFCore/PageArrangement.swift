@@ -40,7 +40,7 @@ public struct PageArrangement: Equatable, Sendable {
     public static func inserting(_ count: Int, at index: Int, pageCount: Int)
         -> Self
     {
-        let index = min(max(index, 0), pageCount)
+        let index = index.clamped(to: 0...pageCount)
         let before = (0..<index).map { Source.existing($0) }
         let after = (index..<pageCount).map { Source.existing($0) }
         return Self(before + (0..<count).map { .pasted($0) } + after)

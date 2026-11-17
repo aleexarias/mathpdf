@@ -1,4 +1,5 @@
 import AppKit
+import MathPDFCore
 import SwiftMath
 
 /// Typesets LaTeX math with SwiftMath, for the page and for checking what's
@@ -164,7 +165,7 @@ public enum LaTeXRenderer {
             .font: errorFont(fontSize: fontSize)
         ]).width
         return CGSize(
-            width: min(max(width + 12, 60), 500), height: fontSize * 1.6)
+            width: (width + 12).clamped(to: 60...500), height: fontSize * 1.6)
     }
 
     /// Draws a formula with the bottom-left corner of its box at the context's

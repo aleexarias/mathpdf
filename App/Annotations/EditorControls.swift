@@ -19,6 +19,19 @@ struct FontSizeStepper: View {
     }
 }
 
+/// A palette colour's name with its swatch, for menus and lists.
+struct PaletteLabel: View {
+    let entry: Palette.Entry
+
+    var body: some View {
+        Label {
+            Text(entry.name)
+        } icon: {
+            Image(nsImage: Palette.swatch(entry.color))
+        }
+    }
+}
+
 struct FinishHint: View {
     var body: some View {
         Text("Esc/⌘↩ to finish.")
@@ -33,6 +46,10 @@ extension View {
         scrollContentBackground(.hidden)
             .padding(4)
             .background(
-                .background.secondary, in: RoundedRectangle(cornerRadius: 6))
+                .background.secondary, in: RoundedRectangle.writingArea)
     }
+}
+
+extension RoundedRectangle {
+    static let writingArea = RoundedRectangle(cornerRadius: 6)
 }

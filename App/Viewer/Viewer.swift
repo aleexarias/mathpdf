@@ -266,28 +266,21 @@ final class Viewer: NSObject {
     /// The search field stays in the toolbar however narrow the window is;
     /// other items go into the overflow menu first. SwiftUI has no setting for
     /// this, and it resets the toolbar item's priority whenever it updates the
-    /// toolbar, so the priority is put back each time.
-    func keepSearchFieldVisible() async {
-        // The toolbar and the field are put together a moment after the window
-        // opens.
-        for _ in 0..<30 {
-            if let searchField,
-                let item = pdfView.window?.toolbar?.items.first(where: {
-                    $0.view.map(searchField.isDescendant(of:)) == true
-                })
-            {
-                item.visibilityPriority = .user
-                searchItemObservation = item.observe(\.visibilityPriority) {
-                    item, _ in
-                    MainActor.assumeIsolated {
-                        if item.visibilityPriority != .user {
-                            item.visibilityPriority = .user
-                        }
-                    }
+    /// toolbar, so the priority is put back each time. Called when the field
+    /// is put in a window, which is when its toolbar item exists.
+    func keepSearchFieldVisible() {
+        guard let searchField,
+            let item = searchField.window?.toolbar?.items.first(where: {
+                $0.view.map(searchField.isDescendant(of:)) == true
+            })
+        else { return }
+        item.visibilityPriority = .user
+        searchItemObservation = item.observe(\.visibilityPriority) { item, _ in
+            MainActor.assumeIsolated {
+                if item.visibilityPriority != .user {
+                    item.visibilityPriority = .user
                 }
-                return
             }
-            try? await Task.sleep(for: .milliseconds(100))
         }
     }
 

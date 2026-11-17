@@ -119,3 +119,8 @@ public struct PageFrame: Equatable, Sendable {
             height: abs(a.y - b.y))
     }
 }
+
+extension CGSize {
+    /// For a page whose size isn't known yet.
+    public static let usLetter = CGSize(width: 612, height: 792)
+}

@@ -63,11 +63,7 @@ struct PageDragImage {
         outline.line(to: CGPoint(x: rect.minX, y: rect.maxY))
         outline.close()
         NSGraphicsContext.saveGraphicsState()
-        let shadow = NSShadow()
-        shadow.shadowColor = NSColor.black.withAlphaComponent(0.35)
-        shadow.shadowBlurRadius = 1.5
-        shadow.shadowOffset = NSSize(width: 0, height: -0.5)
-        shadow.set()
+        NSShadow.page(opacity: 0.35).set()
         NSColor.white.setFill()
         outline.fill()
         NSGraphicsContext.restoreGraphicsState()

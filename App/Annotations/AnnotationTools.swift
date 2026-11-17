@@ -59,12 +59,8 @@ struct AnnotationTools: View {
         Menu {
             Picker("Colour", selection: colour) {
                 ForEach(Palette.entries) { entry in
-                    Label {
-                        Text(entry.name)
-                    } icon: {
-                        Image(nsImage: Palette.swatch(entry.color))
-                    }
-                    .tag(entry.color)
+                    PaletteLabel(entry: entry)
+                        .tag(entry.color)
                 }
             }
             .pickerStyle(.inline)

@@ -18,6 +18,15 @@ struct PDFKitView: NSViewRepresentable {
     }
 }
 
+private final class ToolbarSearchField: NSSearchField {
+    weak var viewer: Viewer?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        viewer?.keepSearchFieldVisible()
+    }
+}
+
 /// The toolbar search field. A native NSSearchField rather than a SwiftUI
 /// TextField: in a toolbar, SwiftUI's focus handling and focus ring don't keep
 /// up when the toolbar resizes.
@@ -25,7 +34,8 @@ struct SearchField: NSViewRepresentable {
     let viewer: Viewer
 
     func makeNSView(context: Context) -> NSSearchField {
-        let field = NSSearchField()
+        let field = ToolbarSearchField()
+        field.viewer = viewer
         field.placeholderString = "Search"
         // search on Return, not on every keystroke
         field.sendsWholeSearchString = true

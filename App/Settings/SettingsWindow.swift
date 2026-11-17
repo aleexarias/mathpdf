@@ -23,7 +23,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         window.title = "Settings"
         window.isReleasedWhenClosed = false
         window.delegate = self
-        window.setContentSize(NSSize(width: 560, height: 440))
+        window.setContentSize(SettingsView.minimumSize)
         window.center()
         self.window = window
         NSApp.runModal(for: window)

@@ -1,4 +1,5 @@
 import AppKit
+import MathPDFCore
 
 /// Sends Cut, Copy, Paste and Delete, and the Delete key, to the sidebar.
 final class PageTableView: NSTableView {
@@ -85,7 +86,7 @@ final class PageRowView: NSTableRowView {
 final class PageCell: NSTableCellView {
     let thumbnail = NSImageView()
     let number = NSTextField(labelWithString: "")
-    var pageSize = CGSize(width: 612, height: 792) {
+    var pageSize = CGSize.usLetter {
         didSet { needsLayout = true }
     }
 
@@ -118,11 +119,7 @@ final class PageCell: NSTableCellView {
         thumbnail.imageScaling = .scaleAxesIndependently
         thumbnail.wantsLayer = true
         thumbnail.layer?.backgroundColor = NSColor.white.cgColor
-        let shadow = NSShadow()
-        shadow.shadowColor = NSColor.black.withAlphaComponent(0.3)
-        shadow.shadowBlurRadius = 1.5
-        shadow.shadowOffset = NSSize(width: 0, height: -0.5)
-        thumbnail.shadow = shadow
+        thumbnail.shadow = .page(opacity: 0.3)
         number.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         number.textColor = .secondaryLabelColor
         number.alignment = .center
@@ -154,5 +151,16 @@ final class PageCell: NSTableCellView {
         number.frame = CGRect(
             x: 0, y: thumbnail.frame.maxY + 4, width: bounds.width,
             height: Self.numberHeight)
+    }
+}
+
+extension NSShadow {
+    /// The soft shadow under a page.
+    static func page(opacity: CGFloat) -> NSShadow {
+        let shadow = NSShadow()
+        shadow.shadowColor = NSColor.black.withAlphaComponent(opacity)
+        shadow.shadowBlurRadius = 1.5
+        shadow.shadowOffset = NSSize(width: 0, height: -0.5)
+        return shadow
     }
 }

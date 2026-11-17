@@ -21,7 +21,7 @@ final class VersionsWindow: NSObject, NSWindowDelegate {
         window.title = "Versions of “\(session.fileName)”"
         window.isReleasedWhenClosed = false
         window.delegate = self
-        window.setContentSize(NSSize(width: 1150, height: 760))
+        window.setContentSize(VersionBrowser.idealSize)
         if let parent {
             // Near the top of the document window, horizontally centred on it.
             let frame = parent.frame

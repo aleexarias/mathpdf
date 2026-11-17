@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 import MathPDFCore
 import MathPDFLaTeX
 import MathPDFRendering
@@ -142,7 +143,7 @@ final class EditorPopoverController: NSObject {
             let type = event.type, timestamp = event.timestamp
             // keyCode and isARepeat are only valid for key events: reading
             // them from a mouse event makes AppKit drop that event.
-            let isEsc = type == .keyDown && event.keyCode == 53
+            let isEsc = type == .keyDown && Int(event.keyCode) == kVK_Escape
             let isRepeat = type == .keyDown && event.isARepeat
             let handled = MainActor.assumeIsolated { () -> Bool in
                 guard let self, self.current != nil else { return false }
@@ -245,9 +246,9 @@ final class EditorPopoverController: NSObject {
             let width = frame?.turned(size).width ?? size.width
             return layout.size(width: max(width, layout.minimumWidth))
         }
+        let pageWidth = frame?.shownSize.width ?? CGSize.usLetter.width
         return layout.size(
-            maxWidth: max(
-                layout.minimumWidth, (frame?.shownSize.width ?? 612) - 72))
+            maxWidth: max(layout.minimumWidth, pageWidth - 72))
     }
 
     /// The page an annotation is on, as shown, so a formula or text box that

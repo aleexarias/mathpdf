@@ -74,7 +74,7 @@ extension Viewer {
     }
 
     private func paste(_ copied: CopiedPages, at index: Int) async {
-        let index = min(max(index, 0), pageCount)
+        let index = index.clamped(to: 0...pageCount)
         guard readyToChangePages(),
             await session.changePages(
                 .inserting(copied.pageCount, at: index, pageCount: pageCount),

@@ -515,11 +515,7 @@ final class DocumentSession {
     /// Exports run one after another, and are off the main thread, so closing
     /// the window or quitting waits for them (see `finishExports`).
     func export(to url: URL) async {
-        let earlier = exportTask
-        let task = Task {
-            await earlier?.value
-            await writeCopy(to: url)
-        }
+        let task = queued(after: exportTask) { await self.writeCopy(to: url) }
         exportTask = task
         await task.value
     }
@@ -565,10 +561,8 @@ final class DocumentSession {
     func queuePageChange(
         _ change: @escaping @MainActor () async throws -> Void
     ) -> Task<Bool, Never> {
-        let earlier = pageTask
         isChangingPages = true
-        let task = Task {
-            _ = await earlier?.value
+        let task = queued(after: pageTask) { [self] in
             // again: the earlier change cleared it as it finished
             isChangingPages = true
             defer { isChangingPages = false }
@@ -587,6 +581,17 @@ final class DocumentSession {
         }
         pageTask = task
         return task
+    }
+
+    /// Runs `work` once `earlier` has finished.
+    private func queued<Earlier: Sendable, Result: Sendable>(
+        after earlier: Task<Earlier, Never>?,
+        _ work: @escaping @MainActor () async -> Result
+    ) -> Task<Result, Never> {
+        Task {
+            _ = await earlier?.value
+            return await work()
+        }
     }
 
     /// Lets a page change being written finish, so closing the window or

@@ -56,7 +56,7 @@ struct LaTeXEditorView: View {
                 .writingArea()
                 .overlay {
                     if draft.isErrorCurrent {
-                        RoundedRectangle(cornerRadius: 6).strokeBorder(
+                        RoundedRectangle.writingArea.strokeBorder(
                             .red.opacity(0.7))
                     }
                 }

@@ -9,6 +9,9 @@ struct SettingsView: View {
     let library: LaTeXCommandLibrary
     let close: () -> Void
 
+    /// Also the size the window opens at.
+    static let minimumSize = CGSize(width: 560, height: 440)
+
     var body: some View {
         TabView(selection: $tab) {
             LaTeXCommandsEditor(library: library, close: close)
@@ -19,7 +22,9 @@ struct SettingsView: View {
                 .tag(SettingsTab.colors)
         }
         .padding(.top, 8)
-        .frame(minWidth: 560, minHeight: 440)
+        .frame(
+            minWidth: Self.minimumSize.width,
+            minHeight: Self.minimumSize.height)
     }
 }
 
@@ -44,11 +49,7 @@ struct ColorSettings: View {
             VStack(alignment: .leading, spacing: 6) {
                 ForEach(Palette.entries) { entry in
                     Toggle(isOn: inRotation(entry)) {
-                        Label {
-                            Text(entry.name)
-                        } icon: {
-                            Image(nsImage: Palette.swatch(entry.color))
-                        }
+                        PaletteLabel(entry: entry)
                     }
                     .toggleStyle(.checkbox)
                 }

@@ -1,4 +1,5 @@
 import AppKit
+import MathPDFCore
 import PDFKit
 import SwiftUI
 
@@ -101,7 +102,7 @@ final class PreviewScrollLink: NSObject {
                 let share =
                     pass == 0 ? delta / CGFloat(positions.count) : left
                 let wanted = positions[index].offset + share
-                let moved = min(max(wanted, 0), positions[index].range)
+                let moved = wanted.clamped(to: 0...positions[index].range)
                 left -= moved - positions[index].offset
                 positions[index].offset = moved
             }
@@ -147,7 +148,7 @@ final class PreviewScrollLink: NSObject {
             ? clip.bounds.minY - pages.minY
             : pages.maxY - clip.bounds.maxY
         return Position(
-            offset: min(max(offset, 0), range), range: range,
+            offset: offset.clamped(to: 0...range), range: range,
             visible: clip.bounds.height)
     }
 
@@ -274,8 +275,7 @@ final class LinkedScroller: NSScroller {
     required init?(coder: NSCoder) { fatalError("not used") }
 
     override func scrollWheel(with event: NSEvent) {
-        let lines: CGFloat = event.hasPreciseScrollingDeltas ? 1 : 10
-        link?.wheel(by: -event.scrollingDeltaY * lines)
+        link?.wheel(by: -event.scrollingDeltaY * event.scrollingPointsPerUnit)
     }
 }
 
