@@ -273,8 +273,9 @@ final class AnnotationEditor: NSObject {
         guard let first = items.first,
             let page = pdfView.document?.page(at: first.pageIndex)
         else { return }
-        pdfView.go(
-            to: unionRect(of: items).insetBy(dx: -40, dy: -80), on: page)
+        let rect = unionRect(of: items)
+        pdfView.go(to: rect.insetBy(dx: -40, dy: -80), on: page)
+        pdfView.keepInView(rect, on: page)
     }
 
     func text(under annotation: Annotation) -> String {

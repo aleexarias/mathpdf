@@ -569,6 +569,7 @@ final class DocumentSession {
         isChangingPages = true
         let task = Task {
             _ = await earlier?.value
+            // again: the earlier change cleared it as it finished
             isChangingPages = true
             defer { isChangingPages = false }
             do {

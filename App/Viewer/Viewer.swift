@@ -355,7 +355,11 @@ final class Viewer: NSObject {
 
     private func showCurrentMatch() {
         guard let index = matchIndex else { return }
-        pdfView.setCurrentSelection(matches[index], animate: true)
-        pdfView.go(to: matches[index])
+        let match = matches[index]
+        pdfView.setCurrentSelection(match, animate: true)
+        pdfView.go(to: match)
+        if let page = match.pages.first {
+            pdfView.keepInView(match.bounds(for: page), on: page)
+        }
     }
 }

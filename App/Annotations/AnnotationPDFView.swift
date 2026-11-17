@@ -597,6 +597,13 @@ final class AnnotationPDFView: PDFView {
             at: CGPoint(x: center.x + dx, y: center.y + dy))
     }
 
+    /// After PDFKit's `go(to:)`, which in two-page layouts can leave what it
+    /// went to under the toolbar.
+    func keepInView(_ rect: CGRect, on page: PDFPage) {
+        layoutDocumentView()
+        scrollToReveal(rect, on: page)
+    }
+
     // MARK: Mouse and keyboard
 
     override func mouseDown(with event: NSEvent) {

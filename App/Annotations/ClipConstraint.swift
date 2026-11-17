@@ -56,11 +56,11 @@ enum ClipConstraint {
     private static func horizontalOrigin(
         of bounds: NSRect, in clip: NSClipView
     ) -> CGFloat {
-        guard let pages = clip.documentView?.frame, clip.frame.width > 0
-        else { return bounds.origin.x }
-        // The inset is in points, the bounds in page units.
-        let inset =
-            clip.contentInsets.left * bounds.width / clip.frame.width
+        guard let pages = clip.documentView?.frame else {
+            return bounds.origin.x
+        }
+        // In page units, like the bounds.
+        let inset = clip.contentInsets.left
         guard pages.width <= bounds.width - inset + 0.5 else {
             return bounds.origin.x
         }
