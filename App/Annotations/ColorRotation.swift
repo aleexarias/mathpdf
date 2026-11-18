@@ -9,30 +9,30 @@ final class ColorRotation {
     static let shared = ColorRotation()
 
     private static let key = "ColourRotation"
-    private static let defaultNames: Set = ["Yellow", "Red"]
+    /// Yellow and light red.
+    private static let defaultIDs: Set = ["Yellow", "Red"]
 
-    /// Palette entry names.
-    private var names: Set<String>
+    /// Palette entries' `id`s.
+    private var ids: Set<String>
 
     private init() {
-        names =
+        ids =
             UserDefaults.standard.stringArray(forKey: Self.key).map(Set.init)
-            ?? Self.defaultNames
+            ?? Self.defaultIDs
     }
 
     func contains(_ entry: Palette.Entry) -> Bool {
-        names.contains(entry.name)
+        ids.contains(entry.id)
     }
 
     func set(_ entry: Palette.Entry, included: Bool) {
         if included {
-            names.insert(entry.name)
+            ids.insert(entry.id)
         } else {
-            names.remove(entry.name)
+            ids.remove(entry.id)
         }
         UserDefaults.standard.set(
-            Palette.entries.map(\.name).filter(names.contains),
-            forKey: Self.key)
+            Palette.entries.map(\.id).filter(ids.contains), forKey: Self.key)
     }
 
     /// The colour after `color` among those ticked, in palette order (see

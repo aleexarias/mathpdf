@@ -46,12 +46,17 @@ struct ColorSettings: View {
             .font(.callout)
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
-            VStack(alignment: .leading, spacing: 6) {
-                ForEach(Palette.entries) { entry in
-                    Toggle(isOn: inRotation(entry)) {
-                        PaletteLabel(entry: entry)
+            HStack(alignment: .top) {
+                ForEach(Self.columns, id: \.startIndex) { column in
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(column) { entry in
+                            Toggle(isOn: inRotation(entry)) {
+                                PaletteLabel(entry: entry)
+                            }
+                            .toggleStyle(.checkbox)
+                        }
                     }
-                    .toggleStyle(.checkbox)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
             .padding(.top, 4)
@@ -64,6 +69,12 @@ struct ColorSettings: View {
         }
         .padding(16)
     }
+
+    /// The palette in two columns, so it fits the window, read down each.
+    private static let columns = {
+        let half = (Palette.entries.count + 1) / 2
+        return [Palette.entries[..<half], Palette.entries[half...]]
+    }()
 
     private func inRotation(_ entry: Palette.Entry) -> Binding<Bool> {
         Binding {

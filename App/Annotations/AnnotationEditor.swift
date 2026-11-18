@@ -27,7 +27,7 @@ final class AnnotationEditor: NSObject {
 
     private(set) var tool: Tool?
     private(set) var highlightColor = Palette.yellow
-    private(set) var underlineColor = Palette.red
+    private(set) var underlineColor = Palette.lightRed
     private(set) var hasTextSelection = false
 
     @ObservationIgnored private let session: DocumentSession
