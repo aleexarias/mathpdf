@@ -44,9 +44,14 @@ struct LaTeXReader {
         while index < text.count, !text[index].isNewline { index += 1 }
     }
 
-    mutating func readText() -> String {
+    /// Up to the next command, or the next of `stops`.
+    mutating func readText(stoppingAt stops: Set<Character> = []) -> String {
         let start = index
-        while index < text.count, text[index] != "\\" { index += 1 }
+        while index < text.count, text[index] != "\\",
+            !stops.contains(text[index])
+        {
+            index += 1
+        }
         return String(text[start..<index])
     }
 

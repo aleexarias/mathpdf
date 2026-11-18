@@ -53,14 +53,12 @@ struct LaTeXCommandsEditor: View {
 
     private var editor: some View {
         TextEditor(text: $library.text)
-            .font(.system(.body, design: .monospaced))
-            .autocorrectionDisabled()
-            .focused($focused)
+            .latexSource(focused: $focused)
             .writingArea()
             .overlay(alignment: .topLeading) {
                 if library.text.isEmpty {
                     Text(verbatim: Self.example)
-                        .font(.system(.body, design: .monospaced))
+                        .font(.latexSource)
                         .foregroundStyle(.tertiary)
                         .padding(9)
                         .allowsHitTesting(false)

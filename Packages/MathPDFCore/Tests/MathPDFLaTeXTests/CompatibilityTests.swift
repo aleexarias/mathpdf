@@ -1,3 +1,4 @@
+import CoreGraphics
 import Testing
 
 @testable import MathPDFLaTeX
@@ -142,9 +143,49 @@ struct CompatibilityTests {
             #"\frac{<}{\left\| x\right\|}"#
         ),
         (#"x \tag{2}"#, #"x \qquad\text{(2)}"#),
+        ("f'(x)", #"f^{}\prime (x)"#), ("f''", #"f^{}\prime \prime "#),
+        ("f\u{2019}x", #"f^{}\prime x"#), ("f'^2", #"f^{}\prime ^2"#),
+        (#"\frac{f'}{g'}"#, #"\frac{f^{}\prime }{g^{}\prime }"#),
+        (#"\'"#, #"\'"#),
+        (#"\text{it's}"#, #"\text{it{\mathpdfrsquo}s}"#),
+        ("\\text{it\u{2019}s}", #"\text{it{\mathpdfrsquo}s}"#),
+        (
+            #"\text{``a'' `b'}"#,
+            #"\text{{\mathpdfldquo}a{\mathpdfrdquo} {\mathpdflsquo}b{\mathpdfrsquo}}"#
+        ),
+        (#"\text{\'e}"#, #"\text{\'e}"#),
     ])
     func rewrites(_ source: String, expected: String) throws {
         #expect(try LaTeXCompatibility.rewrite(source) == expected)
+    }
+
+    @Test(arguments: [
+        ("f'(x)", #"f^{}\prime(x)"#),
+        ("f\u{2019}\u{2019}(x)", #"f^{}\prime\prime(x)"#),
+    ])
+    func apostrophesAreDrawnAsPrimes(_ source: String, latex: String) {
+        #expect(width(source) == width(latex))
+    }
+
+    /// TeX sets a prime after a slanted letter's italic correction.
+    @Test func aPrimeClearsASlantedLetter() {
+        #expect(width("f'") > width(#"f\prime"#))
+    }
+
+    @Test(arguments: [#"\text{it's}"#, "\\text{it\u{2019}s}"])
+    func anApostropheInTextIsDrawn(_ source: String) {
+        #expect(width(source) > width(#"\text{its}"#))
+    }
+
+    private func width(_ source: String) -> CGFloat {
+        guard
+            case .formula(let typeset) = LaTeXRenderer.typeset(
+                source, fontSize: 16, color: .black)
+        else {
+            Issue.record("\(source) didn't typeset")
+            return 0
+        }
+        return typeset.size.width
     }
 
     @Test func sameOperatorNameReusesItsCommand() throws {

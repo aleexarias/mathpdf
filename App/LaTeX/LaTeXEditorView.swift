@@ -50,9 +50,7 @@ struct LaTeXEditorView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             TextEditor(text: $draft.source)
-                .font(.system(.body, design: .monospaced))
-                .autocorrectionDisabled()
-                .focused($focused)
+                .latexSource(focused: $focused)
                 .writingArea()
                 .overlay {
                     if draft.isErrorCurrent {
@@ -88,5 +86,28 @@ struct LaTeXEditorView: View {
         .padding(12)
         .frame(width: 400)
         .onAppear { focused = true }
+    }
+}
+
+extension Font {
+    static let latexSource = Font.system(.body, design: .monospaced)
+}
+
+extension View {
+    /// A `TextEditor` where LaTeX is typed exactly as written. It has no
+    /// setting for smart quotes and dashes (`'` → `’`, `--` → `—`), so they're
+    /// turned off on its text view once that has the focus.
+    func latexSource(focused: FocusState<Bool>.Binding) -> some View {
+        font(.latexSource)
+            .autocorrectionDisabled()
+            .focused(focused)
+            .onChange(of: focused.wrappedValue, initial: true) {
+                guard focused.wrappedValue,
+                    let textView = NSApp.keyWindow?.firstResponder
+                        as? NSTextView
+                else { return }
+                textView.isAutomaticQuoteSubstitutionEnabled = false
+                textView.isAutomaticDashSubstitutionEnabled = false
+            }
     }
 }

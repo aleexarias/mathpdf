@@ -10,6 +10,8 @@ import SwiftMath
 ///   `\operatorname{tr}` → an operator, `align` → `aligned`, `\color{red}` →
 ///   hex, …). Anything else is left for SwiftMath, which reports it as not
 ///   supported.
+/// - Quotes are set as LaTeX sets them: a prime in math (`f''` → f″),
+///   curly in text (`\text{it's}` → it’s).
 @MainActor
 enum LaTeXCompatibility {
     static func rewrite(_ source: String) throws(LaTeXProblem) -> String {
@@ -34,6 +36,8 @@ enum LaTeXCompatibility {
         "&": #"\mathpdfampersand "#,
         "bmod": #"\mathpdfbmod "#,
     ]
+
+    private static let apostrophes: Set<Character> = ["'", "\u{2019}"]
 
     /// `\big(` and the like: SwiftMath can't size a lone delimiter, so it's
     /// drawn at its normal size.
@@ -88,13 +92,30 @@ enum LaTeXCompatibility {
         }
 
         mutating func rewriteAll() throws(LaTeXProblem) -> String {
-            var out = reader.readText()
-            while !reader.isAtEnd {
-                let name = reader.readCommandName()
-                out += try rewrite(command: name)
-                out += reader.readText()
+            var out = reader.readText(stoppingAt: apostrophes)
+            while let next = reader.next {
+                if next == "\\" {
+                    out += try rewrite(command: reader.readCommandName())
+                } else {
+                    out += primes()
+                }
+                out += reader.readText(stoppingAt: apostrophes)
             }
             return out
+        }
+
+        /// SwiftMath draws `'` as a plain quote and drops `’`, which smart
+        /// quotes type (in a text box, or pasted). LaTeX draws each as a
+        /// prime. The math font's prime is already small and raised, so unlike
+        /// TeX's own it isn't put in a superscript; an empty one before it
+        /// puts it where TeX would, clear of a slanted letter like f.
+        private mutating func primes() -> String {
+            var count = 0
+            while let next = reader.next, apostrophes.contains(next) {
+                count += 1
+                reader.skipCharacter()
+            }
+            return "^{}" + String(repeating: #"\prime "#, count: count)
         }
 
         private mutating func rewrite(command name: String)
@@ -178,7 +199,7 @@ enum LaTeXCompatibility {
                 guard let argument = try reader.readGroup() else {
                     return "\\" + name
                 }
-                return "\\\(name){\(argument)}"
+                return "\\\(name){\(curlyQuotes(in: argument))}"
             default:
                 return "\\" + name
             }
@@ -205,6 +226,38 @@ enum LaTeXCompatibility {
             }
             return negated
         }
+    }
+
+    // MARK: Quotes in text
+
+    /// What LaTeX makes of quotes in text, as symbols added below: SwiftMath
+    /// draws `` ` `` and `'` straight, and drops curly quotes.
+    private static let quoteSymbols: [String: String] = [
+        "`": "mathpdflsquo", "\u{2018}": "mathpdflsquo",
+        "'": "mathpdfrsquo", "\u{2019}": "mathpdfrsquo",
+        "``": "mathpdfldquo", "\u{201C}": "mathpdfldquo",
+        "''": "mathpdfrdquo", "\u{201D}": "mathpdfrdquo",
+    ]
+
+    /// Quotes in `text` as LaTeX sets them: `` ` `` ‘, `'` ’, ``` `` ``` “,
+    /// `''` ”. A command is left as it is: `\'e` is an accent.
+    private static func curlyQuotes(in text: String) -> String {
+        var reader = LaTeXReader(text)
+        var out = ""
+        while let next = reader.next {
+            if next == "\\" {
+                out += "\\" + reader.readCommandName()
+                continue
+            }
+            reader.skipCharacter()
+            var quote = String(next)
+            if next == "`" || next == "'", reader.next == next {
+                quote += String(next)
+                reader.skipCharacter()
+            }
+            out += quoteSymbols[quote].map { "{\\\($0)}" } ?? quote
+        }
+        return out
     }
 
     // MARK: Operators
@@ -327,6 +380,10 @@ enum LaTeXCompatibility {
             ("diamond", "\u{22C4}", .binary),
             // Targets of rewrites above.
             ("mathpdfampersand", "&", .ordinary),
+            ("mathpdflsquo", "\u{2018}", .ordinary),
+            ("mathpdfrsquo", "\u{2019}", .ordinary),
+            ("mathpdfldquo", "\u{201C}", .ordinary),
+            ("mathpdfrdquo", "\u{201D}", .ordinary),
             ("mathpdfbmod", "mod", .binary),
         ]
 
