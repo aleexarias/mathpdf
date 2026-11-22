@@ -18,6 +18,11 @@ final class EditorPopoverController: NSObject {
     private let session: DocumentSession
     private let pdfView: AnnotationPDFView
     private var current: OpenEditor?
+    /// Popovers not yet reported closed, including ones whose editor has
+    /// ended. A close can get lost (seen when switching desktops in full
+    /// screen), leaving a popover that nothing reaches: those are taken off
+    /// the screen before another editor opens, or on Done.
+    private var onScreen: [NSPopover] = []
     /// While an editor is open, Esc tries to finish it, whichever view has
     /// focus: before Esc can turn the tool off, and instead of the text view's
     /// word completions. Mouse downs are noted too (see `currentAttempt`).
@@ -90,6 +95,7 @@ final class EditorPopoverController: NSObject {
     func tryToFinish(closingPopover: Bool = true) -> Bool {
         guard let current else {
             removeEventMonitor()
+            closeLeftovers()
             return true
         }
         if case .latex(let draft) = current.draft {
@@ -127,16 +133,26 @@ final class EditorPopoverController: NSObject {
         guard let page = pdfView.document?.page(at: annotation.pageIndex)
         else { return }
         pdfView.scrollToReveal(annotation.bounds, on: page)
+        closeLeftovers()
+        let anchor = pdfView.convert(annotation.bounds, from: page)
         let popover = NSPopover()
         popover.behavior = .transient
         popover.delegate = self
+        // A popover keeps its top edge as it resizes: below what it points
+        // at, it grows away from it. Placed above for want of room below, it
+        // would grow over it, so it's put back against it.
         popover.contentViewController = EditorPopoverHost.controller(
-            for: content)
+            for: content
+        ) { [weak self, weak popover] in
+            guard let self, let popover, isAbove(popover, anchor) else {
+                return
+            }
+            popover.positioningRect = anchor
+        }
         current = OpenEditor(
             id: annotation.id, isNew: isNew, draft: draft, popover: popover)
-        popover.show(
-            relativeTo: pdfView.convert(annotation.bounds, from: page),
-            of: pdfView, preferredEdge: .maxY)
+        popover.show(relativeTo: anchor, of: pdfView, preferredEdge: .minY)
+        onScreen.append(popover)
         eventMonitor = NSEvent.addLocalMonitorForEvents(
             matching: Self.watchedEvents
         ) { [weak self] event in
@@ -229,7 +245,26 @@ final class EditorPopoverController: NSObject {
                     size: .zero, isNew: true)
             }
         }
-        if closingPopover, current.popover.isShown { current.popover.close() }
+        if closingPopover { current.popover.close() }
+    }
+
+    private func isAbove(_ popover: NSPopover, _ anchor: CGRect) -> Bool {
+        guard let window = popover.contentViewController?.view.window,
+            let pageWindow = pdfView.window
+        else { return false }
+        let pointedAt = pageWindow.convertToScreen(
+            pdfView.convert(anchor, to: nil))
+        return window.frame.midY > pointedAt.midY
+    }
+
+    /// Ordering out the window too: AppKit may already count a lost
+    /// popover as closed, and then `close()` does nothing.
+    private func closeLeftovers() {
+        for popover in onScreen where popover !== current?.popover {
+            popover.close()
+            popover.contentViewController?.view.window?.orderOut(nil)
+        }
+        onScreen.removeAll { $0 !== current?.popover }
     }
 
     /// A new text box is as wide as its longest line, up to the page's width
@@ -311,5 +346,9 @@ extension EditorPopoverController: NSPopoverDelegate {
             popover === current?.popover
         else { return }
         close()
+    }
+
+    func popoverDidClose(_ notification: Notification) {
+        onScreen.removeAll { $0 === notification.object as? NSPopover }
     }
 }

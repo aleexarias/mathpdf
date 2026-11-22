@@ -66,6 +66,7 @@ final class Viewer: NSObject {
         session.onPagesChanged = { [weak self] in
             self?.showChangedPages(newIndices: $0)
         }
+        session.closeEditor = { [weak self] in self?.editor.closeEditor() }
         session.fileDocumentProvider = { [weak self] in
             self?.pdfView.window.flatMap(
                 NSDocumentController.shared.document(for:))

@@ -86,6 +86,9 @@ final class DocumentSession {
     /// The window's document. Writing the PDF tells it the change is ours, so
     /// it doesn't treat it as one made by another app.
     @ObservationIgnored var fileDocumentProvider: (() -> NSDocument?)?
+    /// Closes the window's note, formula or text box editor, keeping what's
+    /// valid, as closing the window does.
+    @ObservationIgnored var closeEditor: (() -> Void)?
     /// Called when the pages have changed, before the annotations follow, with
     /// where each earlier page went (nil if it was deleted).
     @ObservationIgnored var onPagesChanged: (([Int?]) -> Void)?

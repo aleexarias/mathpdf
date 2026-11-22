@@ -61,6 +61,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return .terminateCancel
         }
         ViewStateStore.shared.flush()
+        OpenDocuments.shared.closeEditors()
         Task {
             await OpenDocuments.shared.flushAll()
             NSApp.reply(

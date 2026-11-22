@@ -58,7 +58,8 @@ struct LaTeXEditorView: View {
                             .red.opacity(0.7))
                     }
                 }
-                .frame(height: 64)
+                .growingHeight(
+                    from: 64, text: draft.source, focused: focused)
 
             if let error = draft.error {
                 VStack(alignment: .leading, spacing: 4) {

@@ -14,6 +14,7 @@ final class EditorPopoverHost<Content: View>: NSHostingView<Content>,
     /// Shows this view in the popover; it's resized to follow the content,
     /// e.g. when an error message appears.
     private weak var owner: NSViewController?
+    private var resized: (() -> Void)?
 
     override var undoManager: UndoManager? { typingUndoManager }
 
@@ -24,6 +25,7 @@ final class EditorPopoverHost<Content: View>: NSHostingView<Content>,
                 owner.preferredContentSize != intrinsicContentSize
             else { return }
             owner.preferredContentSize = intrinsicContentSize
+            resized?()
         }
     }
 
@@ -43,8 +45,11 @@ final class EditorPopoverHost<Content: View>: NSHostingView<Content>,
         }
     }
 
-    static func controller(for content: Content) -> NSViewController {
+    static func controller(
+        for content: Content, resized: @escaping () -> Void
+    ) -> NSViewController {
         let host = EditorPopoverHost(rootView: content)
+        host.resized = resized
         let controller = NSViewController()
         controller.view = host
         host.owner = controller

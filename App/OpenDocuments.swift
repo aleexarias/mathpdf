@@ -89,6 +89,13 @@ final class OpenDocuments {
         }
     }
 
+    /// Before quitting, so the last save doesn't keep a new formula or text
+    /// box that's still being written and would be removed as empty or
+    /// invalid.
+    func closeEditors() {
+        for session in sessions { session.closeEditor?() }
+    }
+
     func flushAllInBackground() {
         for session in sessions {
             Task { await session.flush() }

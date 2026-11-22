@@ -37,7 +37,8 @@ struct TextBoxEditorView: View {
                 .font(.custom("Helvetica", size: 13))
                 .focused($focused)
                 .writingArea()
-                .frame(width: 320, height: 110)
+                .frame(width: 320)
+                .growingHeight(from: 110, text: draft.text, focused: focused)
             HStack {
                 FontSizeStepper(size: $draft.fontSize, range: 6...72)
                 Spacer()
