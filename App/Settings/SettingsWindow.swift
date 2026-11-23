@@ -20,6 +20,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         host.sizingOptions = [.minSize]
         let window = NSWindow(contentViewController: host)
         window.styleMask = [.titled, .closable, .resizable]
+        window.tabbingMode = .disallowed
         window.title = "Settings"
         window.isReleasedWhenClosed = false
         window.delegate = self

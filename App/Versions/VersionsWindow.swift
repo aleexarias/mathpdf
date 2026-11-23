@@ -18,6 +18,7 @@ final class VersionsWindow: NSObject, NSWindowDelegate {
         host.sizingOptions = [.minSize]
         let window = NSWindow(contentViewController: host)
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
+        window.tabbingMode = .disallowed
         window.title = "Versions of “\(session.fileName)”"
         window.isReleasedWhenClosed = false
         window.delegate = self

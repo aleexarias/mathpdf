@@ -23,6 +23,7 @@ struct DocumentWindow: View {
             }
         }
         .frame(minWidth: 600, minHeight: 400)
+        .background(OpensAsTab())
         .toolbarHiddenInFullScreen()
         .task {
             guard session == nil else { return }
@@ -43,6 +44,20 @@ struct DocumentWindow: View {
             // document has the focus; its rendered pages needn't stay too.
             viewer?.pdfView.document = nil
             if let session { OpenDocuments.shared.windowClosed(session) }
+        }
+    }
+}
+
+/// Has its window join the front document window as a tab. macOS's own
+/// setting does that only in full screen, unless the user changes it.
+private struct OpensAsTab: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView { TabbingView() }
+    func updateNSView(_ view: NSView, context: Context) {}
+
+    private final class TabbingView: NSView {
+        override func viewWillMove(toWindow window: NSWindow?) {
+            super.viewWillMove(toWindow: window)
+            window?.tabbingMode = .preferred
         }
     }
 }
