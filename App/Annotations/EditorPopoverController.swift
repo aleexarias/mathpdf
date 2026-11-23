@@ -19,9 +19,8 @@ final class EditorPopoverController: NSObject {
     private let pdfView: AnnotationPDFView
     private var current: OpenEditor?
     /// Popovers not yet reported closed, including ones whose editor has
-    /// ended. A close can get lost (seen when switching desktops in full
-    /// screen), leaving a popover that nothing reaches: those are taken off
-    /// the screen before another editor opens, or on Done.
+    /// ended. One AppKit has lost (see `reopenIfLost`) is taken off the
+    /// screen once its editor has ended, or when another opens.
     private var onScreen: [NSPopover] = []
     /// While an editor is open, Esc tries to finish it, whichever view has
     /// focus: before Esc can turn the tool off, and instead of the text view's
@@ -31,6 +30,9 @@ final class EditorPopoverController: NSObject {
     /// The event that closed an editor. A click on the page that closes it
     /// shouldn't also add a new note or formula.
     private var closingEvent: TimeInterval?
+
+    /// Longer than a popover takes to close.
+    private static let closingTime: TimeInterval = 0.5
 
     private static let watchedEvents: NSEvent.EventTypeMask = [
         .keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown,
@@ -64,26 +66,22 @@ final class EditorPopoverController: NSObject {
     func edit(_ id: UUID, isNew: Bool) {
         // an editor still open keeps what was typed
         guard tryToFinish(), let annotation = annotation(id) else { return }
-        let done: () -> Void = { [weak self] in self?.tryToFinish() }
-        func present(_ editor: some View, _ draft: Draft) {
-            self.present(editor, for: annotation, isNew: isNew, draft: draft)
-        }
+        let draft: Draft
         switch annotation.kind {
         case .note(let text, _):
-            let draft = NoteDraft(text: text)
-            present(NoteEditorView(draft: draft, done: done), .note(draft))
+            draft = .note(NoteDraft(text: text))
         case .latex(let source, let fontSize, let expanded):
-            let draft = LaTeXDraft(
-                source: source, fontSize: fontSize, expanded: expanded)
-            present(LaTeXEditorView(draft: draft, done: done), .latex(draft))
+            draft = .latex(
+                LaTeXDraft(
+                    source: source, fontSize: fontSize, expanded: expanded))
         case .textBox(let text, let fontSize, let expanded):
-            let draft = TextBoxDraft(
-                text: text, fontSize: fontSize, expanded: expanded)
-            present(
-                TextBoxEditorView(draft: draft, done: done), .textBox(draft))
+            draft = .textBox(
+                TextBoxDraft(
+                    text: text, fontSize: fontSize, expanded: expanded))
         case .highlight, .underline, .image:
-            break
+            return
         }
+        present(draft, for: annotation, isNew: isNew)
     }
 
     /// One try to leave the editor: Esc, Done (⌘↩) or a click outside it.
@@ -127,6 +125,26 @@ final class EditorPopoverController: NSObject {
     // MARK: Showing and ending
 
     private func present(
+        _ draft: Draft, for annotation: Annotation, isNew: Bool
+    ) {
+        let done: () -> Void = { [weak self] in self?.tryToFinish() }
+        switch draft {
+        case .note(let note):
+            show(
+                NoteEditorView(draft: note, done: done), for: annotation,
+                isNew: isNew, draft: draft)
+        case .latex(let formula):
+            show(
+                LaTeXEditorView(draft: formula, done: done), for: annotation,
+                isNew: isNew, draft: draft)
+        case .textBox(let box):
+            show(
+                TextBoxEditorView(draft: box, done: done), for: annotation,
+                isNew: isNew, draft: draft)
+        }
+    }
+
+    private func show(
         _ content: some View, for annotation: Annotation, isNew: Bool,
         draft: Draft
     ) {
@@ -167,12 +185,34 @@ final class EditorPopoverController: NSObject {
                     self.lastMouseDown = timestamp
                     return false
                 }
-                guard isEsc else { return false }
+                guard isEsc else {
+                    self.reopenIfLost()
+                    return false
+                }
                 // holding Esc down doesn't give up on a formula
                 if !isRepeat { self.tryToFinish() }
                 return true
             }
             return handled ? nil : event
+        }
+    }
+
+    /// In full screen AppKit can detach the popover from the page's window:
+    /// key presses then no longer reach it, and closing it does nothing.
+    /// The editor is shown again in a new popover, with what was typed, and
+    /// the lost one is taken off the screen.
+    private func reopenIfLost() {
+        guard let current,
+            let window = current.popover.contentViewController?.view.window,
+            let pageWindow = pdfView.window, window.isVisible,
+            window.parent !== pageWindow,
+            let annotation = annotation(current.id)
+        else { return }
+        self.current = nil
+        removeEventMonitor()
+        window.orderOut(nil)
+        DispatchQueue.main.async { [weak self] in
+            self?.present(current.draft, for: annotation, isNew: current.isNew)
         }
     }
 
@@ -246,6 +286,10 @@ final class EditorPopoverController: NSObject {
             }
         }
         if closingPopover { current.popover.close() }
+        // one AppKit lost is still on the screen once it would have closed
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.closingTime) {
+            [weak self] in self?.closeLeftovers()
+        }
     }
 
     private func isAbove(_ popover: NSPopover, _ anchor: CGRect) -> Bool {
