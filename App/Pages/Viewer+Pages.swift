@@ -20,11 +20,33 @@ extension Viewer {
             return false
         }
         guard editor.finishEditing(),
-            let copied = await session.copyPages(pages)
+            var copied = await session.copyPages(pages)
         else { return false }
+        copied.images = await Self.imageFiles(of: copied.annotations)
         PageClipboard.write(copied)
         return true
     }
+
+    /// Up to `largestImageFiles` in all; past that they stay behind, still
+    /// found when pasted in this app, as images are shared by every document.
+    private static func imageFiles(of annotations: [Annotation]) async
+        -> [String: Data]
+    {
+        var files: [String: Data] = [:]
+        var total = 0
+        for annotation in annotations {
+            guard case .image(let image) = annotation.kind,
+                files[image.hash] == nil,
+                let data = await Persistence.images.data(for: image.hash)
+            else { continue }
+            total += data.count
+            guard total <= largestImageFiles else { return [:] }
+            files[image.hash] = data
+        }
+        return files
+    }
+
+    private static let largestImageFiles = 100_000_000
 
     func cutPages(_ pages: [Int]) async {
         guard pages.count < pageCount, await copyPages(pages) else { return }
@@ -59,10 +81,12 @@ extension Viewer {
 
     /// Pastes pages copied in mathpdf, or with `fromOtherApps` any PDF, before
     /// the page now at `index`.
-    func pasteFromClipboard(at index: Int, fromOtherApps: Bool) async {
+    /// Reads the clipboard while handling the user's Paste: reading it
+    /// later needs their permission.
+    func pasteFromClipboard(at index: Int, fromOtherApps: Bool) {
         guard let copied = PageClipboard.read(fromOtherApps: fromOtherApps)
         else { return NSSound.beep() }
-        await paste(copied, at: index)
+        Task { await paste(copied, at: index) }
     }
 
     /// Pages dragged from a sidebar: another window's, or this one's with ⌥.
@@ -75,6 +99,12 @@ extension Viewer {
 
     private func paste(_ copied: CopiedPages, at index: Int) async {
         let index = index.clamped(to: 0...pageCount)
+        // stored before anything refers to them; one that fails its checks
+        // shows as missing
+        for (hash, data) in copied.images {
+            try? await Persistence.images.store(data, hash: hash)
+            Persistence.imageCache.stored(hash)
+        }
         guard readyToChangePages(),
             await session.changePages(
                 .inserting(copied.pageCount, at: index, pageCount: pageCount),

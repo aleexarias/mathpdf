@@ -25,7 +25,9 @@ final class DocumentSession {
         case exporting(URL)
         /// `id` tells one export's confirmation from the next, so each goes
         /// away on its own time.
-        case exported(URL, annotationCount: Int, id: UUID)
+        /// Images missing from the data folder are left out.
+        case exported(
+            URL, annotationCount: Int, imagesLeftOut: Int, id: UUID)
         case error(String)
     }
 
@@ -103,7 +105,7 @@ final class DocumentSession {
     init(data: Data, fileURL: URL?) {
         self.data = data
         self.fileURL = fileURL
-        pdf = PDFDocument(data: data)
+        pdf = ImageDocument(data: data)
         if pdf == nil {
             phase = .failed("This file couldn't be opened as a PDF.")
         }
@@ -391,6 +393,19 @@ final class DocumentSession {
         return id
     }
 
+    /// Adds an image, selected. Its file must be stored first.
+    func addImage(
+        _ image: ImageReference, pageIndex: Int, bounds: CGRect,
+        within page: PageFrame
+    ) {
+        guard canEdit,
+            let (edit, id) = annotations.addingImage(
+                image, pageIndex: pageIndex, bounds: bounds, within: page)
+        else { return }
+        apply(edit)
+        selection = id
+    }
+
     func finishNote(_ id: UUID, text: String, isNew: Bool) {
         apply(annotations.finishingNote(id, text: text, isNew: isNew))
     }
@@ -443,6 +458,18 @@ final class DocumentSession {
         _ id: UUID, to size: CGSize, within page: PageFrame? = nil
     ) {
         apply(annotations.resizingTextBox(id, to: size, within: page))
+    }
+
+    func resizeImage(_ id: UUID, to bounds: CGRect, within page: PageFrame) {
+        apply(annotations.resizingImage(id, to: bounds, within: page))
+    }
+
+    func cropImage(
+        _ id: UUID, to crop: CGRect, bounds: CGRect, within page: PageFrame
+    ) {
+        apply(
+            annotations.croppingImage(
+                id, to: crop, bounds: bounds, within: page))
     }
 
     func moveItem(_ itemID: UUID, by offset: CGSize) {
@@ -535,14 +562,17 @@ final class DocumentSession {
         let annotations = annotations
         notice = .exporting(url)
         do {
-            try await PDFExporter.export(
+            let leftOut = try await PDFExporter.export(
                 original: data, annotations: annotations, to: url,
-                originalURL: currentFileURL)
+                originalURL: currentFileURL, images: Persistence.images)
             let id = UUID()
-            notice = .exported(url, annotationCount: annotations.count, id: id)
+            notice = .exported(
+                url, annotationCount: annotations.count - leftOut,
+                imagesLeftOut: leftOut, id: id)
+            guard leftOut == 0 else { return }
             Task { [weak self] in
                 try? await Task.sleep(for: .seconds(8))
-                if case .exported(_, _, id)? = self?.notice {
+                if case .exported(_, _, _, id)? = self?.notice {
                     self?.notice = nil
                 }
             }
@@ -610,7 +640,7 @@ final class DocumentSession {
         newIndices: [Int?]
     ) {
         self.data = data
-        pdf = PDFDocument(data: data)
+        pdf = ImageDocument(data: data)
         pageIdentity = identity
         if case .relinkSuggested? = notice { notice = nil }
         onPagesChanged?(newIndices)

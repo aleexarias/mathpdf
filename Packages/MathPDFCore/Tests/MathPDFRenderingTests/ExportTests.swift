@@ -137,7 +137,7 @@ struct ExportTests {
     @Test func aMarkDrawsWhatTheFormulaExpandedTo() throws {
         let document = try #require(PDFDocument(data: Self.makePDF(pages: 1)))
         let page = try #require(document.page(at: 0))
-        for (mark, _) in AnnotationMarks.marks(for: half) {
+        for (mark, _) in AnnotationMarks.marks(for: half, images: nil) {
             page.addAnnotation(mark)
         }
         #expect(page.annotations.first?.contents == #"\half"#)
@@ -220,7 +220,7 @@ struct ExportTests {
             await #expect(throws: PDFExporter.Failure.wouldReplaceOriginal) {
                 try await PDFExporter.export(
                     original: original, annotations: notes, to: spelling,
-                    originalURL: originalURL)
+                    originalURL: originalURL, images: nil)
             }
         }
         #expect(try Data(contentsOf: originalURL) == original)
@@ -240,7 +240,7 @@ struct ExportTests {
         let url = folder.appending(path: "exported.pdf")
         try await PDFExporter.export(
             original: original, annotations: [formula], to: url,
-            originalURL: nil)
+            originalURL: nil, images: nil)
 
         func picture(_ document: PDFDocument?) throws -> Data? {
             try #require(document?.page(at: 0)).thumbnail(
@@ -276,7 +276,7 @@ struct ExportTests {
         ]
         try await PDFExporter.export(
             original: original, annotations: one, to: target,
-            originalURL: originalURL)
+            originalURL: originalURL, images: nil)
         let two =
             one + [
                 Annotation(
@@ -286,7 +286,7 @@ struct ExportTests {
             ]
         try await PDFExporter.export(
             original: original, annotations: two, to: target,
-            originalURL: originalURL)
+            originalURL: originalURL, images: nil)
 
         let types = try #require(PDFDocument(url: target)?.page(at: 0))
             .annotations.compactMap(\.type)

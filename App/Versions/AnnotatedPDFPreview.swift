@@ -29,14 +29,15 @@ struct AnnotatedPDFPreview: NSViewRepresentable {
         let shown = Coordinator.Shown(
             documentHash: documentHash, annotations: annotations)
         guard context.coordinator.shown != shown,
-            let document = PDFDocument(data: data)
+            let document = ImageDocument(data: data)
         else { return }
         for annotation in SidewaysBoxes.corrected(annotations, in: document) {
             guard let page = document.page(at: annotation.pageIndex) else {
                 continue
             }
             for (mark, _) in AnnotationMarks.marks(
-                for: annotation, pageRotation: page.rotation)
+                for: annotation, pageRotation: page.rotation,
+                images: Persistence.imageCache)
             {
                 page.addAnnotation(mark)
             }
@@ -59,7 +60,7 @@ struct AnnotatedPDFPreview: NSViewRepresentable {
 
 /// A preview without scroll bars of its own: the shared one moves it (see
 /// `PreviewScrollLink`), and it still scrolls with the mouse over it.
-final class PreviewPDFView: PDFView {
+final class PreviewPDFView: ImagePDFView {
     /// PDFKit turns scroll bars back on as it likes, so they're swapped for
     /// ones that take no room and draw nothing. Redone for each document,
     /// which can come with a new scroll view.

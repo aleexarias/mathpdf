@@ -30,7 +30,7 @@ extension AnnotationPDFView {
     override func mouseDragged(with event: NSEvent) {
         guard let drag else { return super.mouseDragged(with: event) }
         editor?.dragMoved(by: offset(of: event, from: drag))
-        if editor?.isSettingWidth == true { NSCursor.resizeLeftRight.set() }
+        editor?.gestureCursor?.set()
     }
 
     /// PDFKit only updates the pointer when what's under it changes, so an
@@ -40,11 +40,7 @@ extension AnnotationPDFView {
         guard let editor, let (page, point) = location(of: event) else {
             return
         }
-        if editor.isOnTextBoxEdge(point, on: page) {
-            NSCursor.resizeLeftRight.set()
-        } else if editor.isOnBox(point, on: page) {
-            NSCursor.arrow.set()
-        }
+        editor.cursor(at: point, on: page)?.set()
     }
 
     override func updateTrackingAreas() {
@@ -79,6 +75,9 @@ extension AnnotationPDFView {
         case .delete?, .deleteForward?:
             handled = editor?.deleteSelection() ?? false
         case let key?
+        where (key == .carriageReturn || key == .enter) && modifiers.isEmpty:
+            handled = editor?.toggleCropping() ?? false
+        case let key?
         where (key == .leftArrow || key == .rightArrow) && modifiers.isEmpty:
             viewer?.turnPage(by: key == .leftArrow ? -1 : 1)
             handled = true
@@ -96,24 +95,27 @@ extension AnnotationPDFView {
         if !handled { super.keyDown(with: event) }
     }
 
-    /// Only pages copied in mathpdf: a PDF from another app is more likely a
-    /// snippet than pages.
+    /// Pages copied in mathpdf, or else an image. A PDF from another app is
+    /// more likely a snippet than pages.
     @objc func paste(_ sender: Any?) {
         guard let viewer else { return }
-        Task {
-            await viewer.pasteFromClipboard(
-                at: viewer.pageIndex + 1, fromOtherApps: false)
+        guard viewer.canPastePages(fromOtherApps: false) else {
+            return viewer.editor.pasteImage()
         }
+        viewer.pasteFromClipboard(
+            at: viewer.pageIndex + 1, fromOtherApps: false)
     }
 
-    /// Takes Paste only while there are pages to paste. PDFView enables any
-    /// menu item it's asked about, and its validation can't be extended from
-    /// Swift.
+    /// Takes Paste only while there are pages or an image to paste. PDFView
+    /// enables any menu item it's asked about, and its validation can't be
+    /// extended from Swift.
     override func responds(to selector: Selector!) -> Bool {
         if selector == #selector(paste(_:)) {
             guard Thread.isMainThread else { return false }
             return MainActor.assumeIsolated {
-                viewer?.canPastePages(fromOtherApps: false) == true
+                guard let viewer else { return false }
+                return viewer.canPastePages(fromOtherApps: false)
+                    || viewer.editor.canPasteImage
             }
         }
         return super.responds(to: selector)

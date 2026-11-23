@@ -252,9 +252,7 @@ final class PageSidebar: NSObject, NSTableViewDataSource, NSTableViewDelegate,
         let index =
             tableView.selectedRowIndexes.last.map { $0 + 1 }
             ?? tableView.numberOfRows
-        Task {
-            await viewer.pasteFromClipboard(at: index, fromOtherApps: true)
-        }
+        viewer.pasteFromClipboard(at: index, fromOtherApps: true)
     }
 
     /// Nothing selected, or every page, is just a beep.

@@ -148,10 +148,27 @@ enum Samples {
             color: RGBAColor(red: 0, green: 0, blue: 0), createdAt: created)
     }
 
+    static func image(crop: CGRect = ImageReference.uncropped) -> Annotation {
+        Annotation(
+            kind: .image(
+                ImageReference(
+                    hash: String(repeating: "0123456789abcdef", count: 4),
+                    pixelSize: CGSize(width: 1600, height: 900), crop: crop)),
+            pageIndex: 5,
+            bounds: CGRect(
+                x: 100, y: 300, width: 320 * crop.width,
+                height: 180 * crop.height),
+            color: RGBAColor(red: 0, green: 0, blue: 0), createdAt: created)
+    }
+
     static func everyKind() -> [Annotation] {
         underlineLines() + [highlight(), pointNote(), selectionNote()]
             + trickyLaTeX.map(latex) + trickyLaTeX.map(textBox)
-            + [mathTextBox()]
+            + [
+                mathTextBox(), image(),
+                image(
+                    crop: CGRect(x: 0.125, y: 0.25, width: 0.5, height: 0.5)),
+            ]
     }
 }
 

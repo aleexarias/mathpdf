@@ -1,11 +1,12 @@
 import MathPDFCore
+import MathPDFRendering
 import PDFKit
 
 /// A PDFView that hands clicks, drags, Delete/Esc and right-clicks on mathpdf
 /// annotations to the annotation editor, and pastes copied pages after the
 /// page on screen. Everything else (text selection, links, scrolling) works
 /// as usual.
-final class AnnotationPDFView: PDFView {
+final class AnnotationPDFView: ImagePDFView {
     weak var editor: AnnotationEditor?
     weak var viewer: Viewer?
 
@@ -60,6 +61,19 @@ final class AnnotationPDFView: PDFView {
     /// area, which doesn't lay this view out again, so it's watched directly.
     private var safeAreaObservation: NSKeyValueObservation?
     var zoomAnimation: ZoomAnimation?
+    /// The selected image, outlined with its handles.
+    struct Outline {
+        let mark: PDFAnnotation
+        /// While it's being cropped: the part kept, as fractions of the
+        /// image from its top left, with a handle on each side too.
+        var kept: CGRect?
+    }
+
+    var outline: Outline? {
+        didSet { updateOutline() }
+    }
+    private let selectionOutline = SelectionOutline()
+    let liftedImage = LiftedImage()
 
     // MARK: Geometry
 
@@ -148,6 +162,14 @@ final class AnnotationPDFView: PDFView {
 
     override func layout() {
         super.layout()
+        if selectionOutline.superview == nil {
+            for overlay in [liftedImage, selectionOutline] as [NSView] {
+                overlay.frame = bounds
+                overlay.autoresizingMask = [.width, .height]
+                addSubview(overlay)
+            }
+            liftedImage.pdfView = self
+        }
         if let documentView,
             let clip = documentView.enclosingScrollView?.contentView,
             observedClip !== clip
@@ -172,8 +194,31 @@ final class AnnotationPDFView: PDFView {
         geometryChanged()
     }
 
+    /// Where the outlined image, and the one lifted above the pages, are
+    /// now: they move with the page and while they're dragged.
+    func updateOutline() {
+        if liftedImage.mark != nil { liftedImage.update() }
+        guard let outline, let page = outline.mark.page else {
+            return selectionOutline.show(nil, sideHandles: false)
+        }
+        let image = convert(outline.mark.bounds, from: page)
+        guard let kept = outline.kept else {
+            return selectionOutline.show(image, sideHandles: false)
+        }
+        selectionOutline.show(
+            CGRect(
+                x: image.minX + kept.minX * image.width,
+                y: isFlipped
+                    ? image.minY + kept.minY * image.height
+                    : image.maxY - kept.maxY * image.height,
+                width: kept.width * image.width,
+                height: kept.height * image.height),
+            sideHandles: true)
+    }
+
     private func geometryChanged() {
         updateGeometry()
+        updateOutline()
         // Not from within itself: scrolling in it changes the geometry.
         guard let onLayout, !isCallingOnLayout,
             let clip = documentView?.enclosingScrollView?.contentView,

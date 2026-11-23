@@ -22,8 +22,11 @@ import Foundation
 ///   only knows v3 refuses v4 files rather than draw and save them without it.
 /// - 5: a text box can carry `expanded` too, for the formulas in its text. A
 ///   v4 payload is a valid v5 payload.
+/// - 6: adds images (`"type": "image"`), which refer to files in `images/` by
+///   hash. A v5 payload is a valid v6 payload, and an app that only knows v5
+///   refuses v6 files rather than drop the images.
 enum StoreFile {
-    static let currentSchemaVersion = 5
+    static let currentSchemaVersion = 6
 
     struct Decoded: Sendable {
         var set: AnnotationSet
@@ -73,7 +76,7 @@ enum StoreFile {
                 return Decoded(
                     set: try MigrationV1.migrate(
                         payload, using: makeDecoder()), schemaVersion: 1)
-            case 2, 3, 4, 5:
+            case 2, 3, 4, 5, 6:
                 return Decoded(
                     set: try makeDecoder().decode(
                         AnnotationSet.self, from: payload),

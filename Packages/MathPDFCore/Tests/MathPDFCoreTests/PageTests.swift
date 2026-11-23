@@ -116,18 +116,27 @@ extension DiskHeavyTests {
                 copied.map(\.id) == [annotations[1].id, annotations[2].id])
         }
 
-        @Test func copiedAnnotationsRoundTrip() throws {
-            let annotations = [mark(page: 0), mark(page: 1, group: UUID())]
-            let data = try CopiedAnnotations.encode(annotations, pageCount: 2)
+        @Test func copiedAnnotationsRoundTripWithTheirImages() throws {
+            let annotations = [
+                mark(page: 0), mark(page: 1, group: UUID()), Samples.image(),
+            ]
+            let images = ["a1b2": Data([0, 1, 2, 255])]
+            let data = try CopiedAnnotations.encode(
+                annotations, pageCount: 2, images: images)
             let decoded = try #require(CopiedAnnotations.decode(data))
             #expect(decoded.pageCount == 2)
             #expect(decoded.annotations == annotations)
+            #expect(decoded.images == images)
             #expect(CopiedAnnotations.decode(Data("{}".utf8)) == nil)
-            let newer = Data(
-                String(decoding: data, as: UTF8.self).replacingOccurrences(
-                    of: "\"version\" : 1", with: "\"version\" : 2"
-                ).utf8)
-            #expect(CopiedAnnotations.decode(newer) == nil)
+            func version(_ number: Int) -> Data {
+                Data(
+                    String(decoding: data, as: UTF8.self).replacingOccurrences(
+                        of: "\"version\" : 2", with: "\"version\" : \(number)"
+                    ).utf8)
+            }
+            // version 1 had no images, and reads the same
+            #expect(CopiedAnnotations.decode(version(1))?.pageCount == 2)
+            #expect(CopiedAnnotations.decode(version(3)) == nil)
         }
 
         @Test func savingAfterAPageChangeGoesPastWhatIsStored() async throws {

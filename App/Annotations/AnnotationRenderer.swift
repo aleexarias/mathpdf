@@ -7,7 +7,7 @@ import PDFKit
 /// Keeps the PDFKit annotations on the pages in line with the session's
 /// records, and shows which item is selected. One per window.
 @MainActor
-final class AnnotationRenderer {
+final class AnnotationRenderer: NSObject {
     /// Called with the pages whose annotations were redrawn, so their
     /// thumbnails can refresh.
     var onPagesRedrawn: (([Int]) -> Void)?
@@ -34,8 +34,27 @@ final class AnnotationRenderer {
     init(session: DocumentSession, pdfView: AnnotationPDFView) {
         self.session = session
         self.pdfView = pdfView
+        super.init()
         session.onChange = { [weak self] in self?.render() }
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(imageLoaded(_:)),
+            name: ImageCache.didLoad, object: Persistence.imageCache)
         render()
+    }
+
+    /// Thumbnails can be drawn before their pages' images are loaded.
+    @objc private func imageLoaded(_ notification: Notification) {
+        guard let hash = notification.userInfo?["hash"] as? String else {
+            return
+        }
+        let pages = Set(
+            rendered.values.compactMap { entry -> Int? in
+                guard case .image(let image) = entry.annotation.kind,
+                    image.hash == hash
+                else { return nil }
+                return entry.annotation.pageIndex
+            })
+        if !pages.isEmpty { onPagesRedrawn?(pages.sorted()) }
     }
 
     func marks(ofItem itemID: UUID) -> [PDFAnnotation] {
@@ -95,7 +114,8 @@ final class AnnotationRenderer {
                 continue
             }
             let marks = AnnotationMarks.marks(
-                for: annotation, pageRotation: page.rotation)
+                for: annotation, pageRotation: page.rotation,
+                images: Persistence.imageCache)
             for (mark, _) in marks { page.addAnnotation(mark) }
             rendered[annotation.id] = Rendered(
                 annotation: annotation, marks: marks)
@@ -118,6 +138,8 @@ final class AnnotationRenderer {
             let selected = entry.annotation.itemID == session.selection
             guard selected != entry.isShownSelected else { continue }
             for (mark, color) in entry.marks {
+                // a selected image is outlined instead
+                if mark is ImageAnnotation { continue }
                 if let drawn = mark as? UprightAnnotation {
                     drawn.isSelected = selected
                 } else if case .textBox = entry.annotation.kind {
@@ -133,6 +155,15 @@ final class AnnotationRenderer {
             rendered[id]?.isShownSelected = selected
         }
         for page in changedPages { pdfView.annotationsChanged(on: page) }
+        let outlined =
+            rendered.values.first {
+                guard case .image = $0.annotation.kind else { return false }
+                return $0.isShownSelected
+            }?.marks.first?.mark
+        // kept as it is while the same image is being cropped
+        if pdfView.outline?.mark !== outlined {
+            pdfView.outline = outlined.map { .init(mark: $0) }
+        }
         showUnderlinedText()
     }
 

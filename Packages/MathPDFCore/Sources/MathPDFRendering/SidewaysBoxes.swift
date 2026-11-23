@@ -44,7 +44,7 @@ public enum SidewaysBoxes {
             let turned = layout.size(width: bounds.height)
             return abs(asSaved.height - bounds.height)
                 < abs(turned.height - bounds.width)
-        case .highlight, .underline, .note:
+        case .highlight, .underline, .note, .image:
             return false
         }
     }

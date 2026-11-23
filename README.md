@@ -23,6 +23,11 @@ pull request.
   to move it, and drag its right edge to set how wide its lines wrap. LaTeX
   between `$` signs, as in `the norm $\|x\|_2$`, is typeset in the text (`\$`
   is a dollar sign), and a box is never narrower than its widest formula.
+- **Images**: Insert Image… (⌃⌘I), or paste (⌘V) one copied from another app
+  or from Finder, to add it in the middle of the view. Drag it to move it and
+  its corners to resize it. Press Return, or choose Crop from its menu, and
+  drag its edges or corners to crop it; Reset Crop brings back the whole
+  image.
 - **Pages**: drag thumbnails in the sidebar to reorder pages, or onto another
   open PDF's sidebar to copy them there. Cut, copy, paste and delete work
   too, on one page or several (⌘- or ⇧-click), and annotations go with their
@@ -35,7 +40,7 @@ pull request.
 - **Export** an annotated copy that Preview, Acrobat and other PDF apps can
   show and edit, or **Quick Export** it to `<name>_annotated.pdf` next to the
   original. Formulas, and text boxes with formulas, go in as images; other text
-  boxes stay editable text.
+  boxes stay editable text. Images go in at full resolution.
 
 ### Annotations never change your PDF
 
@@ -51,6 +56,9 @@ Annotations are stored separately from the PDF, in
   for 7 days, one per day for 30 days. The first version is always kept, plus
   at least 4 others. A document whose pages changed counts as one, with all
   its page orders together.
+- Images are kept once each in `~/Library/Application Support/mathpdf/images/`,
+  shared by every PDF that shows them, and deleted a week after no version of
+  any PDF's annotations uses them.
 - Annotations belong to a PDF's contents, so identical files share them. If
   two are open at once, the first opened is where they're changed, and the
   other shows them until that window closes.

@@ -84,6 +84,8 @@ struct AppCommands: Commands {
                     .keyboardShortcut("l", modifiers: [.control, .command])
                 Button("New Text Box") { viewer?.editor.addTextBox() }
                     .keyboardShortcut("t", modifiers: [.control, .command])
+                Button("Insert Image…") { viewer?.editor.chooseImage() }
+                    .keyboardShortcut("i", modifiers: [.control, .command])
                 Button("Next Colour") {
                     viewer?.editor.cycleColor(backwards: false)
                 }

@@ -81,7 +81,7 @@ final class EditorPopoverController: NSObject {
                 text: text, fontSize: fontSize, expanded: expanded)
             present(
                 TextBoxEditorView(draft: draft, done: done), .textBox(draft))
-        case .highlight, .underline:
+        case .highlight, .underline, .image:
             break
         }
     }

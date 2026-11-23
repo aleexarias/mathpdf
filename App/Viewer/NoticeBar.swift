@@ -143,14 +143,14 @@ struct NoticeBar: View {
                 style: .info,
                 text: "Exporting “\(url.lastPathComponent)”…"
             ) {}
-        case let .exported(url, count, _):
+        case let .exported(url, count, leftOut, _):
             Banner(
-                style: .success,
+                style: leftOut == 0 ? .success : .warning,
                 text:
                     """
                     Exported “\(url.lastPathComponent)” with \(count) \
-                    annotation\(count == 1 ? "" : "s"). The original PDF is \
-                    unchanged.
+                    annotation\(count == 1 ? "" : "s").\(Self.missing(leftOut)) \
+                    The original PDF is unchanged.
                     """
             ) {
                 Button("Show in Finder") {
@@ -168,6 +168,15 @@ struct NoticeBar: View {
     private var revealButton: some View {
         Button("Show Data Folder") {
             Persistence.revealDataFolder(of: session)
+        }
+    }
+
+    /// Images an export left out, as a sentence after the count.
+    private static func missing(_ images: Int) -> String {
+        switch images {
+        case 0: ""
+        case 1: " 1 image couldn't be found, so it isn't in it."
+        default: " \(images) images couldn't be found, so they aren't in it."
         }
     }
 

@@ -7,8 +7,8 @@ import PDFKit
 /// added as standard PDF annotations: highlights and underlines (one per item,
 /// however many lines), sticky notes, text boxes as editable text, and each
 /// formula, or text box with formulas, as a stamp that carries its drawing, so
-/// other editors can show it and move it like an image. The original file is
-/// never written to.
+/// other editors can show it and move it like an image, and each image as a
+/// stamp showing it at full size. The original file is never written to.
 @MainActor
 public enum PDFExporter {
     public enum Failure: LocalizedError, Equatable {
@@ -45,8 +45,10 @@ public enum PDFExporter {
             path: "\(name)_annotated.pdf")
     }
 
+    /// `images` are the images shown, at full size, by hash.
     static func annotatedDocument(
-        original data: Data, annotations: [Annotation]
+        original data: Data, annotations: [Annotation],
+        images: [String: CGImage] = [:]
     ) throws(Failure) -> PDFDocument {
         guard let document = PDFDocument(data: data) else {
             throw .unreadablePDF
@@ -56,7 +58,9 @@ public enum PDFExporter {
         guard annotations.isEmpty || document.allowsCommenting else {
             throw .commentingNotAllowed
         }
-        for (pageIndex, mark) in marks(for: annotations, in: document) {
+        for (pageIndex, mark) in marks(
+            for: annotations, in: document, images: images)
+        {
             document.page(at: pageIndex)?.addAnnotation(mark)
         }
         return document
@@ -71,17 +75,24 @@ public enum PDFExporter {
     /// Writes the annotated copy to `url` in one step: whatever was there
     /// before stays until the new file is complete. Never to `original`.
     /// Formulas are typeset here, on the main thread, but writing a big PDF
-    /// takes seconds, so that happens off it.
+    /// takes seconds, so that happens off it, and so does decoding images.
+    /// Returns how many images were left out, missing from `images`.
+    @discardableResult
     public static func export(
         original data: Data, annotations: [Annotation], to url: URL,
-        originalURL: URL?
-    ) async throws {
+        originalURL: URL?, images store: ImageStore?
+    ) async throws -> Int {
         if let originalURL, isSameFile(url, originalURL) {
             throw Failure.wouldReplaceOriginal
         }
+        let shown = annotations.compactMap { annotation -> String? in
+            guard case .image(let image) = annotation.kind else { return nil }
+            return image.hash
+        }
+        let images = await decoded(Set(shown), from: store)
         let job = DocumentToWrite(
             document: try annotatedDocument(
-                original: data, annotations: annotations))
+                original: data, annotations: annotations, images: images))
         try await Task.detached(priority: .userInitiated) {
             guard let output = job.document.dataRepresentation() else {
                 throw Failure.couldntBuild
@@ -89,6 +100,23 @@ public enum PDFExporter {
             removeLeftoverTempFiles(for: url)
             try AtomicFile.write(output, to: url)
         }.value
+        return shown.count { images[$0] == nil }
+    }
+
+    /// At full size; a missing or damaged image is left out.
+    private nonisolated static func decoded(
+        _ hashes: Set<String>, from store: ImageStore?
+    ) async -> [String: CGImage] {
+        guard let store else { return [:] }
+        var images: [String: CGImage] = [:]
+        for hash in hashes {
+            if let data = await store.data(for: hash),
+                let image = ImageDecoding.upright(data)
+            {
+                images[hash] = image
+            }
+        }
+        return images
     }
 
     // MARK: Building
@@ -96,7 +124,8 @@ public enum PDFExporter {
     /// Our annotations as PDF annotations, by page. The lines of a highlight
     /// or underline become one annotation, and so do a note's underlines.
     static func marks(
-        for annotations: [Annotation], in document: PDFDocument
+        for annotations: [Annotation], in document: PDFDocument,
+        images: [String: CGImage]
     ) -> [(
         pageIndex: Int, mark: PDFAnnotation
     )] {
@@ -147,8 +176,18 @@ public enum PDFExporter {
             case .textBox, .latex:
                 marks += AnnotationMarks.marks(
                     for: annotation,
-                    pageRotation: rotation(annotation.pageIndex)
+                    pageRotation: rotation(annotation.pageIndex), images: nil
                 ).map { (annotation.pageIndex, $0.mark) }
+            case .image(let image):
+                guard let decoded = images[image.hash] else { break }
+                marks.append(
+                    (
+                        annotation.pageIndex,
+                        ImageAnnotation(
+                            bounds: annotation.bounds, image: image,
+                            decoded: decoded,
+                            pageRotation: rotation(annotation.pageIndex))
+                    ))
             }
         }
         return marks

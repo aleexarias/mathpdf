@@ -79,6 +79,9 @@ struct AnnotationList: View {
             return source
         case .textBox(let text, _, _):
             return text
+        case .image(let image):
+            return image.crop == ImageReference.uncropped
+                ? "Image" : "Image, cropped"
         }
     }
 
@@ -97,6 +100,7 @@ struct AnnotationList: View {
             case .note: "text.bubble"
             case .latex: "function"
             case .textBox: "character.textbox"
+            case .image: "photo"
             }
         }
 

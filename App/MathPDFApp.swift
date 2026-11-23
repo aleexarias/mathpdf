@@ -18,6 +18,9 @@ struct MathPDFApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         addUndoShortcuts()
+        Task.detached(priority: .background) {
+            await Persistence.removeUnusedImages()
+        }
     }
 
     /// Besides the standard ⌘Z and ⇧⌘Z: ⌃Z undoes, and ⌘Y or ⌃Y redoes. They

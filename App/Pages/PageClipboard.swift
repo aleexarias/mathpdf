@@ -7,6 +7,9 @@ struct CopiedPages: Sendable {
     let pdf: Data
     let pageCount: Int
     let annotations: [Annotation]
+    /// The files of the annotations' images, by hash, on the clipboard: they
+    /// come along to wherever the pages are pasted.
+    var images: [String: Data] = [:]
 }
 
 extension NSPasteboard.PasteboardType {
@@ -23,7 +26,8 @@ enum PageClipboard {
         let item = NSPasteboardItem()
         item.setData(pages.pdf, forType: .pdf)
         if let annotations = try? CopiedAnnotations.encode(
-            pages.annotations, pageCount: pages.pageCount)
+            pages.annotations, pageCount: pages.pageCount,
+            images: pages.images)
         {
             item.setData(annotations, forType: .pageAnnotations)
         }
@@ -47,12 +51,16 @@ enum PageClipboard {
             let pdf = pasteboard.data(forType: .pdf),
             let pageCount = PDFDocument(data: pdf)?.pageCount, pageCount > 0
         else { return nil }
-        let copied = pasteboard.data(forType: .pageAnnotations).flatMap(
-            CopiedAnnotations.decode)
+        guard
+            let copied = pasteboard.data(forType: .pageAnnotations).flatMap(
+                CopiedAnnotations.decode),
+            copied.pageCount == pageCount
+        else {
+            return CopiedPages(pdf: pdf, pageCount: pageCount, annotations: [])
+        }
         return CopiedPages(
-            pdf: pdf, pageCount: pageCount,
-            annotations: copied?.pageCount == pageCount
-                ? copied?.annotations ?? [] : [])
+            pdf: pdf, pageCount: pageCount, annotations: copied.annotations,
+            images: copied.images)
     }
 }
 

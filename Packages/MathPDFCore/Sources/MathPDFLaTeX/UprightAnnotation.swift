@@ -35,7 +35,7 @@ open class UprightAnnotation: PDFAnnotation {
 
     public required init?(coder: NSCoder) { fatalError("not used") }
 
-    override public var bounds: CGRect {
+    override open var bounds: CGRect {
         get { super.bounds }
         set {
             var fitted = newValue
@@ -50,9 +50,20 @@ open class UprightAnnotation: PDFAnnotation {
     open func drawContent(size: CGSize, in context: CGContext) {}
 
     override public func draw(with box: PDFDisplayBox, in context: CGContext) {
+        draw(at: placement(for: box, in: context), in: context)
+    }
+
+    /// Draws it as part of its page, with the context in page coordinates.
+    public func drawOnPage(in context: CGContext) {
+        draw(at: (bounds, pageRotation), in: context)
+    }
+
+    private func draw(
+        at placement: (rect: CGRect, turn: Int), in context: CGContext
+    ) {
         context.saveGState()
         defer { context.restoreGState() }
-        let (rect, turn) = placement(for: box, in: context)
+        let (rect, turn) = placement
         if isSelected {
             context.setFillColor(
                 NSColor.controlAccentColor.withAlphaComponent(0.15).cgColor)

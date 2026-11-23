@@ -22,6 +22,8 @@ public struct Annotation: Identifiable, Equatable, Sendable {
         /// with the user's own commands replaced in its formulas, as for a
         /// formula. Nil if it used none.
         case textBox(text: String, fontSize: Double, expanded: String? = nil)
+        /// `bounds` is the shown image, its aspect ratio that of the crop.
+        case image(ImageReference)
     }
 
     public var id: UUID
@@ -53,6 +55,46 @@ public struct Annotation: Identifiable, Equatable, Sendable {
         self.groupID = groupID
         self.createdAt = Timestamp.normalized(createdAt)
         self.modifiedAt = Timestamp.normalized(modifiedAt ?? createdAt)
+    }
+}
+
+/// An image stored once by `ImageStore`, under the SHA-256 of its file.
+/// `crop` is the part shown, as fractions of the upright image from its top
+/// left, so cropping never changes the file and can always be undone.
+public struct ImageReference: Equatable, Sendable {
+    public static let uncropped = CGRect(x: 0, y: 0, width: 1, height: 1)
+
+    public var hash: String
+    /// Of the upright image.
+    public var pixelSize: CGSize
+    public var crop: CGRect
+
+    public init(hash: String, pixelSize: CGSize, crop: CGRect = uncropped) {
+        self.hash = hash
+        self.pixelSize = pixelSize
+        self.crop = crop
+    }
+
+    /// The shown part's width over its height.
+    public var aspectRatio: CGFloat {
+        crop.width * pixelSize.width / (crop.height * pixelSize.height)
+    }
+
+    /// A SHA-256 (and so a safe file name), a size, and a crop inside the
+    /// image. Stored files are checked with this, as they can be damaged.
+    public var isValid: Bool {
+        Self.isHash(hash) && pixelSize.width >= 1 && pixelSize.height >= 1
+            && pixelSize.width.isFinite && pixelSize.height.isFinite
+            && crop.width > 0 && crop.height > 0
+            && Self.uncropped.insetBy(dx: -1e-9, dy: -1e-9).contains(crop)
+    }
+
+    static func isHash(_ string: String) -> Bool {
+        string.utf8.count == 64
+            && string.utf8.allSatisfy {
+                (UInt8(ascii: "0")...UInt8(ascii: "9")).contains($0)
+                    || (UInt8(ascii: "a")...UInt8(ascii: "f")).contains($0)
+            }
     }
 }
 
@@ -137,6 +179,7 @@ extension Annotation: Codable {
         case text, anchorRects  // note
         // latex; a text box has text, fontSize, expanded
         case source, fontSize, expanded
+        case hash, pixelSize, crop  // image
     }
 
     public init(from decoder: any Decoder) throws {
@@ -182,6 +225,23 @@ extension Annotation: Codable {
                 fontSize: try c.decode(Double.self, forKey: .fontSize),
                 expanded: try c.decodeIfPresent(
                     String.self, forKey: .expanded))
+        case "image":
+            let size = try c.decode([Double].self, forKey: .pixelSize)
+            guard size.count == 2 else {
+                throw DecodingError.dataCorruptedError(
+                    forKey: .pixelSize, in: c,
+                    debugDescription: "A size needs 2 numbers")
+            }
+            let image = ImageReference(
+                hash: try c.decode(String.self, forKey: .hash),
+                pixelSize: CGSize(width: size[0], height: size[1]),
+                crop: try rect(c.decode([Double].self, forKey: .crop), .crop))
+            guard image.isValid else {
+                throw DecodingError.dataCorruptedError(
+                    forKey: .hash, in: c,
+                    debugDescription: "Invalid image reference")
+            }
+            kind = .image(image)
         case let other:
             throw DecodingError.dataCorruptedError(
                 forKey: .type, in: c,
@@ -218,6 +278,13 @@ extension Annotation: Codable {
             try c.encode(source, forKey: .source)
             try c.encode(fontSize, forKey: .fontSize)
             try c.encodeIfPresent(expanded, forKey: .expanded)
+        case .image(let image):
+            try c.encode("image", forKey: .type)
+            try c.encode(image.hash, forKey: .hash)
+            let size = image.pixelSize
+            try c.encode(
+                [Double(size.width), Double(size.height)], forKey: .pixelSize)
+            try c.encode(image.crop.components, forKey: .crop)
         }
     }
 }

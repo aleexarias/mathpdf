@@ -35,17 +35,19 @@ extension Annotation {
     /// multi-line markup.
     public var itemID: UUID { groupID ?? id }
 
-    /// Notes always stay light yellow.
+    /// Notes always stay light yellow, and images keep their own colours.
     public var isRecolorable: Bool {
-        if case .note = kind { return false }
-        return true
+        switch kind {
+        case .note, .image: false
+        case .underline, .highlight, .latex, .textBox: true
+        }
     }
 
-    /// Formulas and text boxes can be dragged around. Highlights, underlines
-    /// and notes stay with their text.
+    /// Formulas, text boxes and images can be dragged around. Highlights,
+    /// underlines and notes stay with their text.
     public var isMovable: Bool {
         switch kind {
-        case .latex, .textBox: true
+        case .latex, .textBox, .image: true
         case .highlight, .underline, .note: false
         }
     }
@@ -269,6 +271,79 @@ extension [Annotation] {
         return page.onPage(page.keptOnPage(resized))
     }
 
+    /// An image shown undistorted in `bounds`: as seen on screen, its aspect
+    /// ratio is the image's. Nil for an invalid image or bounds.
+    public func addingImage(
+        _ image: ImageReference, pageIndex: Int, bounds: CGRect,
+        within page: PageFrame? = nil
+    ) -> (edit: AnnotationEdit, id: UUID)? {
+        guard image.isValid, Self.shows(image, in: bounds, on: page) else {
+            return nil
+        }
+        let annotation = Annotation(
+            kind: .image(image), pageIndex: pageIndex, bounds: bounds,
+            color: RGBAColor(red: 0, green: 0, blue: 0))
+        return (
+            AnnotationEdit(
+                annotations: self + [annotation], actionName: "Add Image"),
+            annotation.id
+        )
+    }
+
+    /// An image at new bounds, still undistorted.
+    public func resizingImage(
+        _ id: UUID, to bounds: CGRect, within page: PageFrame? = nil
+    ) -> AnnotationEdit? {
+        changingImage(id, actionName: "Resize Image", within: page) {
+            _, shownIn in shownIn = bounds
+        }
+    }
+
+    /// Shows another part of an image, in new bounds: cropping hides or
+    /// reveals its sides without distorting the rest.
+    public func croppingImage(
+        _ id: UUID, to crop: CGRect, bounds: CGRect,
+        within page: PageFrame? = nil
+    ) -> AnnotationEdit? {
+        changingImage(id, actionName: "Crop Image", within: page) {
+            image, shownIn in
+            image.crop = crop
+            shownIn = bounds
+        }
+    }
+
+    private func changingImage(
+        _ id: UUID, actionName: String, within page: PageFrame?,
+        _ change: (inout ImageReference, inout CGRect) -> Void
+    ) -> AnnotationEdit? {
+        guard let index = firstIndex(where: { $0.id == id }),
+            case .image(var image) = self[index].kind
+        else { return nil }
+        var bounds = self[index].bounds
+        change(&image, &bounds)
+        guard image.isValid, Self.shows(image, in: bounds, on: page),
+            bounds != self[index].bounds || .image(image) != self[index].kind
+        else { return nil }
+        var updated = self
+        updated[index].kind = .image(image)
+        updated[index].bounds = bounds
+        updated[index].modifiedAt = Timestamp.now()
+        return AnnotationEdit(annotations: updated, actionName: actionName)
+    }
+
+    /// Whether `bounds` shows the image's crop undistorted on screen.
+    private static func shows(
+        _ image: ImageReference, in bounds: CGRect, on page: PageFrame?
+    ) -> Bool {
+        let shown = page?.shown(bounds) ?? bounds
+        guard shown.width > 0, shown.height > 0 else { return false }
+        return abs(shown.width / shown.height / image.aspectRatio - 1)
+            < Self.aspectTolerance
+    }
+
+    /// Gestures work in screen points, so a shape is matched up to rounding.
+    private static var aspectTolerance: CGFloat { 0.01 }
+
     /// Moves all of an item; a note's text anchors move with it.
     public func movingItem(_ itemID: UUID, by offset: CGSize)
         -> AnnotationEdit?
@@ -366,7 +441,8 @@ extension Annotation.Kind {
     func isSameKind(as other: Self) -> Bool {
         switch (self, other) {
         case (.underline, .underline), (.highlight, .highlight),
-            (.note, .note), (.latex, .latex), (.textBox, .textBox):
+            (.note, .note), (.latex, .latex), (.textBox, .textBox),
+            (.image, .image):
             true
         default: false
         }

@@ -315,7 +315,7 @@ struct RotatedPagesTests {
                 ofShownSize: size, centredAt: CGPoint(x: 300, y: 400)),
             color: Self.black)
         for (mark, _) in AnnotationMarks.marks(
-            for: annotation, pageRotation: rotation)
+            for: annotation, pageRotation: rotation, images: nil)
         {
             page.addAnnotation(mark)
         }

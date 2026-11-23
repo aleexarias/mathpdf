@@ -8,9 +8,10 @@ import PDFKit
 @MainActor
 public enum AnnotationMarks {
     /// What's drawn for one annotation, and the colour each mark is normally
-    /// drawn in.
+    /// drawn in. Images are drawn from `images`.
     public static func marks(
-        for annotation: Annotation, pageRotation: Int = 0
+        for annotation: Annotation, pageRotation: Int = 0,
+        images: ImageCache?
     ) -> [(mark: PDFAnnotation, color: NSColor)] {
         let color = annotation.color.nsColor
         func line(
@@ -37,6 +38,11 @@ public enum AnnotationMarks {
                 annotation, text: text, fontSize: fontSize, expanded: expanded,
                 color: color, pageRotation: pageRotation)
             return [(box, .clear)]
+        case .image(let image):
+            let drawn = ImageAnnotation(
+                bounds: annotation.bounds, image: image, cache: images,
+                pageRotation: pageRotation)
+            return [(drawn, .clear)]
         }
     }
 
