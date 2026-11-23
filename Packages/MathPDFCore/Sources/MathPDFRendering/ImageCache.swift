@@ -29,7 +29,7 @@ public final class ImageCache: @unchecked Sendable {
     private let state = OSAllocatedUnfairLock(initialState: State())
 
     private struct State {
-        var loading: Set<String> = []
+        var loading: [String: Task<Void, Never>] = [:]
         var missing: Set<String> = []
     }
 
@@ -45,17 +45,27 @@ public final class ImageCache: @unchecked Sendable {
     {
         let hash = image.hash
         if state.withLock({ $0.missing.contains(hash) }) { return .missing }
-        let sizes = Self.sizes(upTo: image)
-        let wanted =
-            sizes.first { CGFloat($0) >= pixels } ?? sizes[sizes.count - 1]
+        let wanted = Self.size(showing: pixels, of: image)
         if let ready = images.object(forKey: key(hash, wanted)) {
             return .image(ready)
         }
         load(hash, longestSide: wanted)
-        let nearest = sizes.reversed().lazy.compactMap {
+        let nearest = Self.sizes(upTo: image).reversed().lazy.compactMap {
             self.images.object(forKey: self.key(hash, $0))
         }.first
         return nearest.map(Lookup.image) ?? .loading
+    }
+
+    /// Returns once the image is decoded to be shown `pixels` big, or found
+    /// to be missing.
+    public func prepare(_ image: ImageReference, longestSide pixels: CGFloat)
+        async
+    {
+        let wanted = Self.size(showing: pixels, of: image)
+        guard images.object(forKey: key(image.hash, wanted)) == nil else {
+            return
+        }
+        await load(image.hash, longestSide: wanted).value
     }
 
     /// Lets an image that was missing be looked for again, once it's stored.
@@ -77,34 +87,48 @@ public final class ImageCache: @unchecked Sendable {
         return sizes
     }
 
+    /// The smallest size at least `pixels`, or the largest.
+    private static func size(showing pixels: CGFloat, of image: ImageReference)
+        -> Int
+    {
+        let sizes = sizes(upTo: image)
+        return sizes.first { CGFloat($0) >= pixels } ?? sizes[sizes.count - 1]
+    }
+
     private func key(_ hash: String, _ side: Int) -> NSString {
         "\(hash)-\(side)" as NSString
     }
 
-    private func load(_ hash: String, longestSide side: Int) {
+    /// The decoding of that size, started unless it already is.
+    @discardableResult
+    private func load(_ hash: String, longestSide side: Int)
+        -> Task<Void, Never>
+    {
         let name = key(hash, side) as String
-        guard state.withLock({ $0.loading.insert(name).inserted }) else {
-            return
-        }
-        Task.detached(priority: .userInitiated) { [self] in
-            let decoded: CGImage? =
-                if let data = await store.data(for: hash) {
-                    await decoder.upright(data, longestSide: side)
-                } else { nil }
-            if let decoded {
-                images.setObject(
-                    decoded, forKey: name as NSString,
-                    cost: decoded.bytesPerRow * decoded.height)
+        return state.withLock { state in
+            if let loading = state.loading[name] { return loading }
+            let loading = Task.detached(priority: .userInitiated) { [self] in
+                let decoded: CGImage? =
+                    if let data = await store.data(for: hash) {
+                        await decoder.upright(data, longestSide: side)
+                    } else { nil }
+                if let decoded {
+                    images.setObject(
+                        decoded, forKey: name as NSString,
+                        cost: decoded.bytesPerRow * decoded.height)
+                }
+                self.state.withLock {
+                    $0.loading[name] = nil
+                    if decoded == nil { $0.missing.insert(hash) }
+                }
+                await MainActor.run {
+                    NotificationCenter.default.post(
+                        name: Self.didLoad, object: self,
+                        userInfo: ["hash": hash])
+                }
             }
-            state.withLock {
-                $0.loading.remove(name)
-                if decoded == nil { $0.missing.insert(hash) }
-            }
-            await MainActor.run {
-                NotificationCenter.default.post(
-                    name: Self.didLoad, object: self,
-                    userInfo: ["hash": hash])
-            }
+            state.loading[name] = loading
+            return loading
         }
     }
 }

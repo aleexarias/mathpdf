@@ -106,6 +106,27 @@ import UniformTypeIdentifiers
         #expect(colour(CGPoint(x: 80, y: 25)) == (0, 0, 255))
     }
 
+    @Test func aPreparedImageIsDrawnFromTheStart() async throws {
+        let (cache, image) = try await stored(Self.redAndBlue())
+        await cache.prepare(image, longestSide: 100)
+        let decoded = cache.image(image, longestSide: 100)
+        guard case .image(let decoded) = decoded else {
+            Issue.record("Not decoded: \(decoded)")
+            return
+        }
+        #expect(max(decoded.width, decoded.height) >= 100)
+
+        let gone = ImageReference(
+            hash: String(repeating: "0", count: 64),
+            pixelSize: image.pixelSize)
+        await cache.prepare(gone, longestSide: 100)
+        let missing = cache.image(gone, longestSide: 100)
+        guard case .missing = missing else {
+            Issue.record("Not missing: \(missing)")
+            return
+        }
+    }
+
     @Test func onlyTheCropIsDrawn() async throws {
         var (cache, image) = try await stored(Self.redAndBlue())
         image.crop = CGRect(x: 0.5, y: 0, width: 0.5, height: 1)

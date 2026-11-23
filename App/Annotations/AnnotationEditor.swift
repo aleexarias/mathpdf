@@ -444,13 +444,20 @@ final class AnnotationEditor: NSObject {
         }
         popover.close()
         finishCropping(keeping: true)
-        let area = pdfView.uncoveredRect
-        let centre = CGPoint(x: area.midX, y: area.midY)
-        guard let page = pdfView.page(for: centre, nearest: true),
+        guard let (page, centre) = middleOfView,
             let pageIndex = pdfView.index(of: page)
         else { return nil }
         session.select(nil)
-        return (page, pageIndex, pdfView.convert(centre, to: page))
+        return (page, pageIndex, centre)
+    }
+
+    private var middleOfView: (page: PDFPage, centre: CGPoint)? {
+        let area = pdfView.uncoveredRect
+        let centre = CGPoint(x: area.midX, y: area.midY)
+        guard let page = pdfView.page(for: centre, nearest: true) else {
+            return nil
+        }
+        return (page, pdfView.convert(centre, to: page))
     }
 
     // MARK: Images
@@ -478,7 +485,9 @@ final class AnnotationEditor: NSObject {
     }
 
     /// Prepares and stores the image away from the main thread, then adds it
-    /// in the middle of the view: never before its file is on disk.
+    /// in the middle of the view: never before its file is on disk, nor
+    /// before it's decoded. Until then the page would draw an empty box, and
+    /// PDFKit can miss being asked to draw it again.
     private func addImage(from source: ImageSource) {
         Task {
             do {
@@ -492,23 +501,37 @@ final class AnnotationEditor: NSObject {
                 }.value
                 try await Persistence.images.store(image)
                 Persistence.imageCache.stored(image.hash)
-                place(image)
+                let reference = ImageReference(
+                    hash: image.hash, pixelSize: image.pixelSize)
+                if let pixels = pixelsShown(of: reference) {
+                    await Persistence.imageCache.prepare(
+                        reference, longestSide: pixels)
+                }
+                place(reference)
             } catch {
                 session.notice = .error(error.localizedDescription)
             }
         }
     }
 
-    private func place(_ image: PreparedImage) {
+    private func place(_ image: ImageReference) {
         guard let (page, pageIndex, centre) = placeForNewItem() else { return }
         let frame = pdfView.pageFrame(of: page)
         session.addImage(
-            ImageReference(hash: image.hash, pixelSize: image.pixelSize),
-            pageIndex: pageIndex,
+            image, pageIndex: pageIndex,
             bounds: frame.box(
                 ofShownSize: shownSize(of: image.pixelSize, on: frame),
                 centredAt: centre),
             within: frame)
+    }
+
+    /// Screen pixels along its longer side, added now.
+    private func pixelsShown(of image: ImageReference) -> CGFloat? {
+        guard let page = middleOfView?.page else { return nil }
+        let size = shownSize(
+            of: image.pixelSize, on: pdfView.pageFrame(of: page))
+        return max(size.width, size.height) * pdfView.scaleFactor
+            * (pdfView.window?.backingScaleFactor ?? 2)
     }
 
     /// A point a pixel, made smaller to fit in half of what's visible and on

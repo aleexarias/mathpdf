@@ -48,8 +48,11 @@ struct DocumentWindow: View {
     }
 }
 
-/// Has its window join the front document window as a tab. macOS's own
-/// setting does that only in full screen, unless the user changes it.
+/// Has its window join the front document window as a tab, which macOS's
+/// own setting does only in full screen. A full-screen window takes no tabs,
+/// so a document opened next to one gets a full screen of its own: once a tab
+/// of a full-screen window closes, its toolbar, hidden there, no longer comes
+/// back on hover.
 private struct OpensAsTab: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView { TabbingView() }
     func updateNSView(_ view: NSView, context: Context) {}
@@ -57,7 +60,30 @@ private struct OpensAsTab: NSViewRepresentable {
     private final class TabbingView: NSView {
         override func viewWillMove(toWindow window: NSWindow?) {
             super.viewWillMove(toWindow: window)
-            window?.tabbingMode = .preferred
+            NotificationCenter.default.removeObserver(self)
+            guard let window else { return }
+            window.tabbingMode = .preferred
+            for (name, action) in [
+                (
+                    NSWindow.willEnterFullScreenNotification,
+                    #selector(willEnterFullScreen(_:))
+                ),
+                (
+                    NSWindow.didExitFullScreenNotification,
+                    #selector(didExitFullScreen(_:))
+                ),
+            ] {
+                NotificationCenter.default.addObserver(
+                    self, selector: action, name: name, object: window)
+            }
+        }
+
+        @objc private func willEnterFullScreen(_ notification: Notification) {
+            (notification.object as? NSWindow)?.tabbingMode = .disallowed
+        }
+
+        @objc private func didExitFullScreen(_ notification: Notification) {
+            (notification.object as? NSWindow)?.tabbingMode = .preferred
         }
     }
 }
