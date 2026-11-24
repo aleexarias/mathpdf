@@ -27,7 +27,9 @@ struct DocumentWindow: View {
         .toolbarHiddenInFullScreen()
         .task {
             guard session == nil else { return }
-            let session = DocumentSession(data: file.data, fileURL: fileURL)
+            let data =
+                fileURL.flatMap(OpenDocuments.shared.shownData) ?? file.data
+            let session = DocumentSession(data: data, fileURL: fileURL)
             self.session = session
             if let pdf = session.pdf {
                 viewer = Viewer(document: pdf, session: session)

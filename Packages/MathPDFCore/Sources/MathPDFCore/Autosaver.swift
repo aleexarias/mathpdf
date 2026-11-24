@@ -14,6 +14,12 @@ import Observation
 @MainActor @Observable
 public final class Autosaver {
     public private(set) var lastError: (any Error)?
+    /// Asked before each save: why it mustn't be written, if it mustn't. A
+    /// refused save stays pending and isn't tried again; `lastError` says
+    /// why.
+    @ObservationIgnored public var refusal: @MainActor () -> (any Error)? = {
+        nil
+    }
     private(set) var lastSavedRevision: Int?
 
     @ObservationIgnored private let store: AnnotationStore
@@ -60,6 +66,10 @@ public final class Autosaver {
         let task = Task { [weak self] in
             await previous?.value
             guard let self, let set = self.latest else { return }
+            if let refusal = self.refusal() {
+                self.lastError = refusal
+                return
+            }
             self.latest = nil
             do {
                 // Something else saved this PDF further along, like a second

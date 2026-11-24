@@ -11,7 +11,20 @@ struct NoticeBar: View {
             if let notice = session.notice {
                 banner(for: notice)
             }
-            if let editor = session.editingSession {
+            if let editor = session.editingSession,
+                session.showsSameFile(as: editor)
+            {
+                Banner(
+                    style: .info,
+                    text:
+                        """
+                        This PDF is being edited elsewhere. Changes made there \
+                        appear here as they're made.
+                        """
+                ) {
+                    Button("Show") { editor.showWindow() }
+                }
+            } else if let editor = session.editingSession {
                 Banner(
                     style: .info,
                     text:
@@ -20,6 +33,17 @@ struct NoticeBar: View {
                         “\(editor.fileName)”. Identical PDFs share their \
                         annotations, so they can only be changed there until \
                         it closes.
+                        """
+                ) {}
+            }
+            if session.isStale {
+                Banner(
+                    style: .warning,
+                    text:
+                        """
+                        The pages of this PDF were changed in another window, \
+                        and this one couldn't show the new ones, so nothing \
+                        can be changed here. Close it and open the PDF again.
                         """
                 ) {}
             }
@@ -48,8 +72,13 @@ struct NoticeBar: View {
             if let error = session.autosaver.lastError {
                 Banner(
                     style: .error,
-                    text:
+                    text: error is DocumentSession.WriteRefusal
+                        ? """
+                        Couldn't save annotations: \
+                        \(error.localizedDescription) This window's recent \
+                        changes aren't on disk.
                         """
+                        : """
                         Couldn't save annotations: \
                         \(error.localizedDescription) Your changes are kept \
                         in memory and will be retried.

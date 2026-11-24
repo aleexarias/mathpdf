@@ -1,4 +1,5 @@
 import AppKit
+import MathPDFCore
 
 /// The documents open in windows, so their annotations get saved when a window
 /// closes, when the app goes to the background, and before it quits.
@@ -11,8 +12,8 @@ import AppKit
 final class OpenDocuments {
     static let shared = OpenDocuments()
 
-    /// In the order they were opened.
-    private var sessions: [DocumentSession] = []
+    private var order = EditingOrder<DocumentSession>()
+    private var sessions: [DocumentSession] { order.windows }
     /// Saves started by closing windows. Each task keeps its session alive
     /// until it finishes.
     private var closingSaves: [ObjectIdentifier: Task<Void, Never>] = [:]
@@ -22,18 +23,50 @@ final class OpenDocuments {
 
     func register(_ session: DocumentSession) {
         guard !session.isWindowClosed else { return }
-        sessions.append(session)
+        // Another window on the file changed its pages while this one loaded.
+        let hash = session.annotationSet?.documentHash
+        if sessions.contains(where: {
+            !$0.isStale && $0.annotationSet?.documentHash != hash
+                && $0.showsSameFile(as: session)
+        }) {
+            return session.becomeStale()
+        }
+        order.add(session)
         assignEditors()
     }
 
+    /// The PDF as shown in a window already open on the file at `url`, for a
+    /// new window on it: the file's document keeps the PDF as it was opened,
+    /// before any page change.
+    func shownData(ofFileAt url: URL) -> Data? {
+        sessions.first {
+            !$0.isStale && !$0.isWindowClosed
+                && $0.currentFileURL?.standardizedFileURL
+                    == url.standardizedFileURL
+        }?.data
+    }
+
     private func assignEditors() {
-        var editors: [String: DocumentSession] = [:]
-        for session in sessions {
-            guard let hash = session.annotationSet?.documentHash else {
-                continue
-            }
-            session.follow(editors[hash])
-            editors[hash] = editors[hash] ?? session
+        for (session, editor) in order.assignments(
+            hash: { $0.annotationSet?.documentHash })
+        {
+            session.follow(editor)
+        }
+    }
+
+    /// Whether `session` may write its PDF's annotations: it edits them, or
+    /// it's a closed window and no open one shows that PDF.
+    func isWriter(_ session: DocumentSession) -> Bool {
+        guard let hash = session.annotationSet?.documentHash else {
+            return false
+        }
+        let assignments = order.assignments(
+            hash: { $0.annotationSet?.documentHash })
+        if let own = assignments.first(where: { $0.window === session }) {
+            return own.editor == nil
+        }
+        return !assignments.contains {
+            $0.window.annotationSet?.documentHash == hash
         }
     }
 
@@ -44,16 +77,26 @@ final class OpenDocuments {
     }
 
     /// Whoever just arrived at a PDF has written its annotations, so that's
-    /// the window to go on editing them.
-    func pagesChanged(in session: DocumentSession) {
-        sessions.removeAll { $0 === session }
-        sessions.insert(session, at: 0)
+    /// the window to go on editing them. Other windows on the same file
+    /// arrive there too; windows on copies stay where they were.
+    func pagesChanged(in changer: DocumentSession, newIndices: [Int?]) {
+        for session in sessions
+        where session.editingSession === changer
+            && session.showsSameFile(as: changer)
+        {
+            if !session.followPages(of: changer, newIndices: newIndices) {
+                order.remove(session)
+            }
+        }
+        order.moveToFront(changer)
         assignEditors()
     }
 
     func flushSessions(showing hash: String) async {
         for session in sessions
         where session.annotationSet?.documentHash == hash {
+            // a window about to follow can't apply what's being written
+            session.closeEditor?()
             await session.flush()
         }
     }
@@ -80,12 +123,17 @@ final class OpenDocuments {
             await session.finishPageChanges()
             await session.finishExports()
             await session.flush()
-            if session.autosaver.hasUnsavedChanges {
+            let followers = sessions.filter { $0.editingSession === session }
+            closingSaves[id] = nil
+            order.remove(session)
+            assignEditors()
+            guard session.autosaver.hasUnsavedChanges else { return }
+            // Only one window may save these annotations: the one now
+            // editing them, if any.
+            let heir = followers.first { $0.editingSession == nil }
+            if heir?.saveForClosedEditor() != true {
                 failedClosedSessions.append(session)
             }
-            closingSaves[id] = nil
-            sessions.removeAll { $0 === session }
-            assignEditors()
         }
     }
 

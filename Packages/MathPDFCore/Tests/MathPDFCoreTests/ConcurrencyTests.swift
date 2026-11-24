@@ -132,6 +132,24 @@ extension DiskHeavyTests {
             #expect(try #require(saved).annotations == set.annotations)
         }
 
+        /// A save the owner refuses, as from a window that isn't editing the
+        /// PDF, writes nothing, now or later, and stays pending with the
+        /// reason.
+        @MainActor @Test func aRefusedSaveWritesNothing() async throws {
+            struct NotTheEditor: Error {}
+            let store = AnnotationStore(rootURL: root)
+            let autosaver = Autosaver(store: store, delay: .milliseconds(2))
+            autosaver.refusal = { NotTheEditor() }
+            autosaver.changed(makeSet(revision: 1))
+            try await Task.sleep(for: .milliseconds(50))
+            await autosaver.flush()
+
+            #expect(autosaver.hasUnsavedChanges)
+            #expect(autosaver.lastError is NotTheEditor)
+            #expect(autosaver.lastSavedRevision == nil)
+            #expect(await store.snapshots(documentHash: testHash).isEmpty)
+        }
+
         /// A save that loses to a higher revision used to vanish, with the
         /// window showing it as saved.
         @MainActor @Test func aSaveBehindTheStoreIsntDropped() async throws {

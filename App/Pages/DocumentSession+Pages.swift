@@ -187,6 +187,7 @@ extension DocumentSession {
         try await Task.detached(priority: .userInitiated) {
             try PDFFileWriter.checkUnchanged(url, hash: current.hash)
         }.value
+        if let refusal = writeRefusal() { throw refusal }
         // The pages being left are kept, for the version history.
         set = try await Persistence.store.leavePages(
             set,
@@ -202,7 +203,7 @@ extension DocumentSession {
         set.pageCount = target.pageIDs.count
         set.annotations = target.annotations
         let saved = try await Persistence.store.saveAsNewest(set)
-        let document = fileDocumentProvider?()
+        let document = fileDocument
         let presenter = PDFFileWriter.Presenter(document)
         try await Task.detached(priority: .userInitiated) {
             try PDFFileWriter.replace(url, with: target.data, by: presenter)

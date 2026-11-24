@@ -34,6 +34,7 @@ struct AnnotationList: View {
                                     Button("Delete") {
                                         session.deleteItem(item.id)
                                     }
+                                    .disabled(!session.canEdit)
                                 }
                         }
                     }

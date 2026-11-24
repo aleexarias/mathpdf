@@ -67,10 +67,7 @@ final class Viewer: NSObject {
             self?.showChangedPages(newIndices: $0)
         }
         session.closeEditor = { [weak self] in self?.editor.closeEditor() }
-        session.fileDocumentProvider = { [weak self] in
-            self?.pdfView.window.flatMap(
-                NSDocumentController.shared.document(for:))
-        }
+        session.windowProvider = { [weak self] in self?.pdfView.window }
         editor.onPagesRedrawn = { [weak self] in
             self?.sidebar.pagesRedrawn($0)
         }
@@ -210,6 +207,9 @@ final class Viewer: NSObject {
                 newIndices.indices.contains(oldIndex)
                 ? newIndices[oldIndex] : nil
             if let newIndex, let page = document.page(at: newIndex) {
+                // PDFKit's current page doesn't follow scrolling done in code
+                pdfView.go(to: page)
+                pdfView.layoutDocumentView()
                 pdfView.restore(
                     AnnotationPDFView.ZoomAnchor(
                         page: page, pagePoint: anchor.pagePoint,
@@ -220,6 +220,16 @@ final class Viewer: NSObject {
         }
         pageChanged()
         sidebar.reload()
+    }
+
+    func openInNewTab() {
+        guard let document = session.fileDocument, session.phase == .ready,
+            !OpenDocuments.shared.isChangingPages
+        else { return NSSound.beep() }
+        document.makeWindowControllers()
+        // Shown once SwiftUI has set the window up: one that opens straight
+        // into full screen before then keeps its toolbar there.
+        DispatchQueue.main.async { document.showWindows() }
     }
 
     // MARK: Export

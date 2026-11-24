@@ -33,6 +33,12 @@ final class DocumentSession {
 
     enum SaveStatus { case saved, edited, failed }
 
+    struct WriteRefusal: LocalizedError {
+        var errorDescription: String? {
+            "Another window is editing these annotations."
+        }
+    }
+
     /// Tells this window's pages apart from another's when they're dragged.
     let id = UUID()
     private(set) var pdf: PDFDocument?
@@ -62,6 +68,9 @@ final class DocumentSession {
     private(set) var allowsCommenting = true
     /// The file no longer holds the PDF shown here (see `checkFile`).
     private(set) var isFileChangedElsewhere = false
+    /// Another window on this file changed its pages, and this one couldn't
+    /// show the new ones. It stays on the old ones, changing nothing.
+    private(set) var isStale = false
     @ObservationIgnored private var checkedFileDate: Date?
     /// The selected annotation item: a multi-line markup's `groupID`, or a
     /// single annotation's ID.
@@ -85,9 +94,8 @@ final class DocumentSession {
     @ObservationIgnored var onChange: (() -> Void)?
     /// The PDF's bytes: as opened, then as written by each page change.
     @ObservationIgnored private(set) var data: Data
-    /// The window's document. Writing the PDF tells it the change is ours, so
-    /// it doesn't treat it as one made by another app.
-    @ObservationIgnored var fileDocumentProvider: (() -> NSDocument?)?
+    /// The window, once it exists. Set by the viewer.
+    @ObservationIgnored var windowProvider: (() -> NSWindow?)?
     /// Closes the window's note, formula or text box editor, keeping what's
     /// valid, as closing the window does.
     @ObservationIgnored var closeEditor: (() -> Void)?
@@ -110,6 +118,7 @@ final class DocumentSession {
             phase = .failed("This file couldn't be opened as a PDF.")
         }
         readProtection()
+        autosaver.refusal = { [weak self] in self?.writeRefusal() }
     }
 
     /// Also after unlocking: the right password can lift the restrictions.
@@ -118,9 +127,16 @@ final class DocumentSession {
         allowsCommenting = pdf?.allowsCommenting ?? true
     }
 
+    /// The window's document. Two windows on one file share it. Writing the
+    /// PDF tells it the change is ours, so it doesn't treat it as one made by
+    /// another app.
+    var fileDocument: NSDocument? {
+        windowProvider?().flatMap(NSDocumentController.shared.document(for:))
+    }
+
     /// The document follows the file if it's moved while open.
     var currentFileURL: URL? {
-        fileDocumentProvider?()?.fileURL ?? fileURL
+        fileDocument?.fileURL ?? fileURL
     }
 
     var fileName: String {
@@ -230,16 +246,83 @@ final class DocumentSession {
 
     // MARK: A second window on one PDF
 
+    /// Whether `other` is another window on this file, rather than on an
+    /// identical copy of it.
+    func showsSameFile(as other: DocumentSession) -> Bool {
+        guard let document = fileDocument else { return false }
+        return document === other.fileDocument
+    }
+
+    func showWindow() {
+        guard let window = windowProvider?() else { return }
+        if window.isMiniaturized { window.deminiaturize(nil) }
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate()
+    }
+
+    /// After `editor`, another window on this file, changed its pages: shows
+    /// the new ones too, keeping its place, and goes on following. Returns
+    /// false if it can't show them; it then stays on the old ones for good,
+    /// changing nothing.
+    func followPages(of editor: DocumentSession, newIndices: [Int?]) -> Bool {
+        guard let identity = editor.pageIdentity,
+            let set = editor.annotationSet, let current = annotationSet,
+            let pdf = ImageDocument(data: editor.data)
+        else {
+            becomeStale()
+            return false
+        }
+        data = editor.data
+        self.pdf = pdf
+        pageIdentity = identity
+        onPagesChanged?(newIndices)
+        annotationSet = withCurrentLocation(set, from: current)
+        return true
+    }
+
+    func becomeStale() {
+        isStale = true
+        savingAllowed = false
+        editingSession = nil
+    }
+
+    /// Nil while this window may write its PDF's annotations and pages.
+    /// Otherwise it stops editing for good: only the editor ever gets as far
+    /// as writing, so something went wrong.
+    func writeRefusal() -> WriteRefusal? {
+        if savingAllowed, OpenDocuments.shared.isWriter(self) { return nil }
+        savingAllowed = false
+        return WriteRefusal()
+    }
+
     /// Leaves the annotations to `editor`, showing them as they change; nil
     /// takes them back, as they last were.
     func follow(_ editor: DocumentSession?) {
-        if editor != nil, editingSession == nil {
-            // what's left to undo would overwrite what the editor does
-            undoManagerProvider?()?.removeAllActions(withTarget: self)
+        let wasFollowing = editingSession != nil
+        editingSession = editor
+        if editor == nil, wasFollowing {
+            // the file may have changed while another window had it
+            Task { await checkFile() }
+        }
+        if editor != nil, !wasFollowing {
+            // What's being written can't be applied any more, and what's left
+            // to undo would overwrite the editor's work. The undo manager is
+            // this window's own.
+            closeEditor?()
+            undoManagerProvider?()?.removeAllActions()
             if case .relinkSuggested? = notice { notice = nil }
         }
-        editingSession = editor
         if let editor { showAnnotations(of: editor) }
+    }
+
+    /// For the window that edits once the editor closed without saving: what
+    /// it shows is what the editor had, so it saves that. Returns whether it
+    /// could.
+    func saveForClosedEditor() -> Bool {
+        guard canWrite, let annotationSet else { return false }
+        autosaver.changed(annotationSet)
+        Task { await autosaver.flush() }
+        return true
     }
 
     func showAnnotations(of editor: DocumentSession) {
@@ -645,6 +728,6 @@ final class DocumentSession {
         if case .relinkSuggested? = notice { notice = nil }
         onPagesChanged?(newIndices)
         annotationSet = annotations
-        OpenDocuments.shared.pagesChanged(in: self)
+        OpenDocuments.shared.pagesChanged(in: self, newIndices: newIndices)
     }
 }

@@ -105,6 +105,11 @@ struct AppCommands: Commands {
             }
         }
 
+        CommandGroup(after: .windowArrangement) {
+            Button("Open in New Tab") { viewer?.openInNewTab() }
+                .disabled(viewer == nil)
+        }
+
         CommandGroup(after: .toolbar) {
             Button("Actual Size") { viewer?.actualSize() }
                 .keyboardShortcut("0")

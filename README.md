@@ -32,6 +32,9 @@ pull request.
   open PDF's sidebar to copy them there. Cut, copy, paste and delete work
   too, on one page or several (⌘- or ⇧-click), and annotations go with their
   pages.
+- **Open in New Tab** (Window menu) shows the same PDF a second time, on
+  another page. The first tab edits, and the other shows every change as it's
+  made.
 - **Search** the document and step through the matches.
 - **Version history**: compare any earlier version with the current one side by
   side, and restore it. Earlier page orders are versions too: go back to the
